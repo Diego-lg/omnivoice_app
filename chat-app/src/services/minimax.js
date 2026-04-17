@@ -88,8 +88,7 @@ export async function* streamMinimaxResponse(
   // Parse SSE stream
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
-  const seenChunks = new Set(); // Track seen chunks to avoid duplicates
-  const lastYieldedContent = new Set(); // Track last yielded content to avoid duplicates
+  let previousLength = 0; // Track length of previously yielded content
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -105,14 +104,6 @@ export async function* streamMinimaxResponse(
     }
 
     try {
-      // Create a hash of the raw data to detect duplicate chunks
-      const chunkHash = data.slice(0, 200); // Use first 200 chars as identifier
-      if (seenChunks.has(chunkHash)) {
-        console.log("[MiniMax] Skipping duplicate chunk");
-        continue;
-      }
-      seenChunks.add(chunkHash);
-
       const parsed = JSON.parse(data);
       console.log("[MiniMax] Parsed chunk, keys:", Object.keys(parsed));
 
@@ -137,26 +128,19 @@ export async function* streamMinimaxResponse(
           }
 
           if (content && content.trim()) {
-            // Skip if we already yielded this exact content to avoid duplicates
-            if (lastYieldedContent.has(content)) {
-              console.log(
-                "[MiniMax] Skipping duplicate content:",
-                content.substring(0, 30),
-              );
-              continue;
+            // Only yield NEW delta based on length difference
+            // MiniMax sends accumulated content, so only new chars should be yielded
+            if (content.length > previousLength) {
+              const delta = content.slice(previousLength);
+              if (delta.trim()) {
+                console.log(
+                  "[MiniMax] Yielding delta:",
+                  delta.substring(0, 50) + "...",
+                );
+                yield delta;
+              }
+              previousLength = content.length;
             }
-            lastYieldedContent.add(content);
-            // Limit size of tracking set to prevent memory issues
-            if (lastYieldedContent.size > 1000) {
-              const firstKey = lastYieldedContent.values().next().value;
-              lastYieldedContent.delete(firstKey);
-            }
-
-            console.log(
-              "[MiniMax] Yielding:",
-              content.substring(0, 50) + "...",
-            );
-            yield content;
           }
         }
       }
