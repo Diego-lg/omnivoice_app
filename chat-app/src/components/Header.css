@@ -2,27 +2,37 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
+  padding: var(--spacing-lg) 0;
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  height: var(--header-height);
+  contain: layout style;
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--spacing-md);
+  min-width: 0;
+  flex: 1;
 }
 
 .history-btn {
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 8px;
-  transition: all 150ms ease;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  position: relative;
 }
 
 .history-btn:hover {
@@ -30,22 +40,38 @@
   color: var(--text-primary);
 }
 
+.history-btn:active {
+  transform: scale(0.95);
+}
+
 .logo {
   font-family: "IBM Plex Mono", "SF Mono", "Consolas", monospace;
   font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   color: var(--text-primary);
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .current-chat-name {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   padding: 6px 12px;
   background: var(--bg-tertiary);
-  border-radius: 6px;
-  max-width: 240px;
+  border-radius: 8px;
+  max-width: 200px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--transition-fast);
+}
+
+.current-chat-name:hover {
+  border-color: var(--border);
 }
 
 .current-chat-name span {
@@ -59,25 +85,32 @@
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--spacing-md);
   position: relative;
+  flex-shrink: 0;
 }
 
 .header-btn {
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 8px;
-  transition: all 150ms ease;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  position: relative;
 }
 
 .header-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.header-btn:active {
+  transform: scale(0.95);
 }
 
 .menu-overlay {
@@ -93,7 +126,7 @@
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 8px;
+  margin-top: var(--spacing-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -107,12 +140,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px;
+  padding: var(--spacing-md) var(--spacing-lg);
   background: transparent;
   color: var(--text-primary);
   font-size: 14px;
   text-align: left;
-  transition: background 150ms ease;
+  transition: background var(--transition-fast);
+  min-height: var(--touch-target-min);
 }
 
 .menu-dropdown button:hover {
@@ -121,4 +155,73 @@
 
 .menu-dropdown button svg {
   flex-shrink: 0;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .header {
+    padding: var(--spacing-md) 0;
+  }
+
+  .logo {
+    font-size: 16px;
+  }
+
+  .current-chat-name {
+    max-width: 140px;
+    padding: 4px 10px;
+  }
+
+  .current-chat-name span {
+    font-size: 12px;
+  }
+
+  .header-right {
+    gap: var(--spacing-sm);
+  }
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: var(--spacing-sm) 0;
+  }
+
+  .logo {
+    display: none;
+  }
+
+  .current-chat-name {
+    max-width: 100px;
+    padding: 4px 8px;
+  }
+
+  .current-chat-name span {
+    font-size: 11px;
+  }
+
+  .header-btn,
+  .history-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .menu-dropdown {
+    right: -8px;
+    min-width: 140px;
+  }
+
+  .header-left {
+    gap: var(--spacing-sm);
+  }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+  .current-chat-name {
+    display: none;
+  }
+
+  .header-right {
+    gap: 4px;
+  }
 }

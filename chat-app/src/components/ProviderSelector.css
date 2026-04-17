@@ -1,7 +1,7 @@
 .provider-selector {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .provider-select {
@@ -9,15 +9,15 @@
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 8px 28px 8px 12px;
   font-size: 13px;
   cursor: pointer;
-  transition: border-color 200ms ease;
+  transition: border-color var(--transition-normal);
   appearance: none;
-  padding-right: 28px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23A0A0A0' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+  min-height: var(--touch-target-min);
 }
 
 .provider-select:hover {
@@ -51,4 +51,22 @@
 
 .status-api {
   background: var(--accent);
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .provider-select {
+    font-size: 12px;
+    padding: 6px 20px 6px 8px;
+    background-position: right 6px center;
+  }
+
+  .provider-selector {
+    gap: 6px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+  }
 }

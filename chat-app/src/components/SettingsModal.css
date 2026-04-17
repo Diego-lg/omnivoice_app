@@ -9,8 +9,10 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: var(--spacing-lg);
   animation: fadeIn 150ms ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 @keyframes fadeIn {
@@ -25,7 +27,7 @@
 .modal-content {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 20px;
   width: 100%;
   max-width: 480px;
   max-height: 90vh;
@@ -33,6 +35,7 @@
   display: flex;
   flex-direction: column;
   animation: slideIn 200ms ease;
+  box-shadow: var(--shadow-lg);
 }
 
 .settings-modal {
@@ -54,7 +57,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
+  padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: 1px solid var(--border);
 }
 
@@ -66,15 +69,15 @@
 }
 
 .modal-close {
-  width: 32px;
-  height: 32px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   color: var(--text-secondary);
   border-radius: 6px;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
 }
 
 .modal-close:hover {
@@ -85,25 +88,34 @@
 /* Settings Tabs */
 .settings-tabs {
   display: flex;
-  gap: 4px;
-  padding: 12px 24px;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md) var(--spacing-xl);
   background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-tab {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px var(--spacing-md);
   background: transparent;
   color: var(--text-secondary);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  min-height: var(--touch-target-min);
 }
 
 .settings-tab:hover {
@@ -113,7 +125,8 @@
 
 .settings-tab.active {
   background: var(--bg-secondary);
-  color: var(--accent);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-tab svg {
@@ -121,9 +134,10 @@
 }
 
 .modal-body {
-  padding: 24px;
+  padding: var(--spacing-xl);
   overflow-y: auto;
   flex: 1;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-section {
@@ -143,7 +157,7 @@
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .form-label {
@@ -156,16 +170,19 @@
 .form-select {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: var(--spacing-md);
   font-size: 14px;
   color: var(--text-primary);
-  transition: border-color 200ms ease;
+  transition: all var(--transition-normal);
+  min-height: var(--touch-target-min);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .form-input:focus,
 .form-select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232, 232, 236, 0.1), inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .form-input::placeholder {
@@ -199,8 +216,8 @@
 }
 
 .form-hint.voice-provider-hint {
-  margin-top: 8px;
-  padding: 12px;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-md);
   background: var(--bg-tertiary);
   border-radius: 8px;
 }
@@ -210,13 +227,13 @@
 }
 
 .model-loading {
-  padding: 12px 0;
+  padding: var(--spacing-md) 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
 .model-empty {
-  padding: 12px 0;
+  padding: var(--spacing-md) 0;
 }
 
 .model-empty p {
@@ -228,8 +245,8 @@
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 24px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
   border-top: 1px solid var(--border);
 }
 
@@ -238,7 +255,8 @@
   font-size: 14px;
   font-weight: 500;
   border-radius: 8px;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
+  min-height: var(--touch-target-min);
 }
 
 .btn-secondary {
@@ -278,7 +296,7 @@
   border-radius: 4px;
   cursor: pointer;
   position: relative;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
 }
 
 .form-checkbox:checked {
@@ -300,4 +318,95 @@
 
 .form-checkbox:hover {
   border-color: var(--accent);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .modal-overlay {
+    padding: var(--spacing-md);
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    max-height: 85vh;
+    border-radius: 16px 16px 0 0;
+    animation: slideUp 200ms ease;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .modal-header {
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+
+  .modal-body {
+    padding: var(--spacing-lg);
+  }
+
+  .modal-footer {
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+
+  .settings-tabs {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .settings-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    max-height: 95vh;
+    border-radius: 16px 16px 0 0;
+    max-width: none;
+    width: 100%;
+  }
+
+  .settings-modal {
+    max-width: none;
+  }
+
+  .modal-title {
+    font-size: 15px;
+  }
+
+  .modal-body {
+    padding: var(--spacing-md);
+  }
+
+  .settings-section {
+    gap: var(--spacing-md);
+  }
+
+  .form-group {
+    gap: 6px;
+  }
+
+  .form-label {
+    font-size: 13px;
+  }
+}
+
+/* Safe area for notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .modal-footer {
+    padding-bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom));
+  }
 }

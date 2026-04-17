@@ -1,19 +1,21 @@
 .persona-selector {
   position: relative;
+  z-index: 101;
 }
 
 .persona-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--spacing-sm);
+  padding: 8px var(--spacing-md);
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
+  min-height: var(--touch-target-min);
 }
 
 .persona-trigger:hover {
@@ -35,7 +37,7 @@
 }
 
 .persona-arrow {
-  transition: transform 150ms ease;
+  transition: transform var(--transition-fast);
   opacity: 0.6;
 }
 
@@ -49,28 +51,28 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 99;
+  z-index: 101;
 }
 
 .persona-dropdown {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 8px;
+  margin-top: var(--spacing-sm);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  z-index: 100;
+  z-index: 102;
   min-width: 280px;
   max-height: 400px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
 .persona-dropdown-header {
-  padding: 12px 16px;
+  padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--border);
 }
 
@@ -85,20 +87,22 @@
 .persona-list {
   overflow-y: auto;
   max-height: 300px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .persona-option {
   width: 100%;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
   background: transparent;
   color: var(--text-primary);
   text-align: left;
-  transition: background 150ms ease;
+  transition: background var(--transition-fast);
   border: none;
   cursor: pointer;
+  min-height: var(--touch-target-min);
 }
 
 .persona-option:hover {
@@ -142,7 +146,7 @@
 }
 
 .persona-dropdown-footer {
-  padding: 12px 16px;
+  padding: var(--spacing-md) var(--spacing-lg);
   border-top: 1px solid var(--border);
 }
 
@@ -151,15 +155,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: var(--spacing-sm);
+  padding: 10px var(--spacing-lg);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: all var(--transition-fast);
+  min-height: var(--touch-target-min);
 }
 
 .persona-edit-btn:hover {
@@ -170,4 +175,40 @@
 
 .persona-edit-btn svg {
   opacity: 0.7;
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .persona-dropdown {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: 80px;
+    bottom: auto;
+    max-height: calc(100vh - 160px);
+    border-radius: 16px;
+    margin: 0;
+    min-width: auto;
+    width: auto;
+    max-width: none;
+  }
+
+  .persona-trigger {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .persona-list {
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .persona-option {
+    padding: var(--spacing-md);
+    min-height: 60px;
+  }
+
+  .persona-option-avatar {
+    font-size: 20px;
+  }
 }
