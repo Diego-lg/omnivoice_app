@@ -5,7 +5,9 @@
  * Supports text-to-speech, voice cloning, and voice profile management.
  */
 
-const OMNIVOICE_BASE_URL = "http://localhost:8005";
+// Use relative URLs to leverage Vite proxy in development
+// The proxy in vite.config.js forwards /v1/* and /health to http://localhost:8005
+const OMNIVOICE_BASE_URL = "";
 
 /**
  * Convert an ArrayBuffer to a Base64 string

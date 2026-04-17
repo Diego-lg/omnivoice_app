@@ -6,5 +6,18 @@ export default defineConfig({
   server: {
     port: 5173,
     open: false,
+    allowedHosts: ["omnivoice.awaqai.com"],
+    proxy: {
+      "/v1": {
+        target: "http://localhost:8005",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/health": {
+        target: "http://localhost:8005",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });
