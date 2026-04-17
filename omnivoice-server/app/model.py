@@ -275,6 +275,99 @@ class OmniVoiceModel:
             return []
         return sorted(self._model.supported_language_names())
 
+    def generate_stream(
+        self,
+        text: str,
+        voice_mode: str = "auto",
+        ref_audio: Optional[str] = None,
+        ref_text: Optional[str] = None,
+        instruct: Optional[str] = None,
+        voice_profile_id: Optional[str] = None,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        duration: Optional[float] = None,
+        num_step: int = 32,
+        guidance_scale: float = 2.0,
+        chunk_duration: float = 5.0,
+    ):
+        """Generate speech audio with streaming - yields audio chunks as they are generated.
+
+        Args:
+            text: Text to synthesize.
+            voice_mode: Voice mode - 'clone', 'design', or 'auto'.
+            ref_audio: Base64-encoded reference audio for cloning.
+            ref_text: Transcription of reference audio.
+            instruct: Voice design instruction string.
+            voice_profile_id: Saved voice profile ID to use.
+            language: Language for synthesis.
+            speed: Speaking speed factor.
+            duration: Fixed output duration in seconds.
+            num_step: Number of decoding steps.
+            guidance_scale: Guidance scale for generation.
+            chunk_duration: Duration of each audio chunk in seconds.
+
+        Yields:
+            numpy array chunks of generated audio.
+        """
+        import io
+
+        if self._model is None:
+            raise RuntimeError("Model not loaded. Call load() first.")
+
+        # Determine voice clone prompt
+        voice_clone_prompt = None
+        audio_tuple = None
+
+        if voice_profile_id:
+            voice_clone_prompt = self._voice_store.get_voice_clone_prompt(voice_profile_id)
+            if voice_clone_prompt is None:
+                raise ValueError(f"Voice profile not found: {voice_profile_id}")
+        elif ref_audio:
+            waveform, sr = decode_audio_from_base64(ref_audio)
+            audio_tuple = (waveform, sr)
+
+        gen_config = OmniVoiceGenerationConfig(
+            num_step=num_step,
+            guidance_scale=guidance_scale,
+        )
+
+        try:
+            # Generate full audio first
+            logger.info(f"Starting streaming generation for text: {text[:50]}...")
+            audio = self._model.generate(
+                text=text,
+                language=language,
+                ref_text=ref_text,
+                ref_audio=audio_tuple,
+                voice_clone_prompt=voice_clone_prompt,
+                instruct=instruct,
+                duration=duration,
+                speed=speed,
+                generation_config=gen_config,
+            )
+            logger.info(f"Audio generation complete. Shape: {audio.shape}, duration: {audio.shape[-1] / self.sampling_rate:.2f}s")
+
+            # Yield audio in chunks
+            if len(audio.shape) == 1:
+                audio = audio[np.newaxis, :]  # (T,) -> (1, T)
+
+            chunk_size = int(chunk_duration * self.sampling_rate)
+            total_samples = audio.shape[1]
+            num_chunks = (total_samples + chunk_size - 1) // chunk_size
+            logger.info(f"Streaming audio in {num_chunks} chunks of ~{chunk_duration}s each")
+
+            for start in range(0, total_samples, chunk_size):
+                end = min(start + chunk_size, total_samples)
+                chunk = audio[:, start:end]
+                logger.debug(f"Yielding chunk: samples {start} to {end}, shape: {chunk.shape}")
+                yield chunk
+
+            logger.info("All chunks streamed successfully")
+
+        except Exception as e:
+            logger.error(f"Streaming generation failed: {e}")
+            raise
+
 
 # Global model instance
 _model_instance: Optional[OmniVoiceModel] = None

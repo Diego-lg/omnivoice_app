@@ -335,6 +335,171 @@ export async function textToSpeech(
 }
 
 /**
+ * Stream text-to-speech with progressive audio playback.
+ *
+ * @param {string} text - Text to synthesize
+ * @param {Object} options - Synthesis options (same as textToSpeech)
+ * @param {string} [baseUrl] - Base URL of the OmniVoice server
+ * @param {Function} onChunk - Callback for each audio chunk: (audioBuffer: AudioBuffer) => void
+ * @returns {Promise<void>}
+ */
+export async function streamTextToSpeech(
+  text,
+  options = {},
+  baseUrl = OMNIVOICE_BASE_URL,
+  onChunk = null,
+) {
+  const {
+    voice = "auto",
+    voiceConfig = {},
+    generationConfig = {},
+    voiceProfileId = null,
+  } = options;
+
+  // Validate voice mode requirements
+  if (voice === "design" && !voiceConfig.instruct) {
+    throw new Error(
+      "Voice mode 'design' requires an instruction description (e.g., 'male, british accent'). Please provide a voice description in settings.",
+    );
+  }
+
+  if (voice === "clone" && !voiceConfig.refAudio) {
+    throw new Error(
+      "Voice mode 'clone' requires reference audio. Please upload a clear audio sample (24kHz WAV recommended, 10-60 seconds).",
+    );
+  }
+
+  // Build request body
+  const requestBody = {
+    input: text,
+    model: "omnivoice",
+    voice: voice,
+    voice_config: {
+      ref_audio: voiceConfig.refAudio || null,
+      ref_text: voiceConfig.refText || null,
+      instruct: voiceConfig.instruct || null,
+    },
+    generation_config: {
+      language: generationConfig.language || null,
+      speed: generationConfig.speed ?? 1.0,
+      duration: generationConfig.duration || null,
+      num_step: generationConfig.numStep ?? 32,
+      guidance_scale: generationConfig.guidanceScale ?? 2.0,
+    },
+  };
+
+  if (voiceProfileId) {
+    requestBody.voice_profile_id = voiceProfileId;
+  }
+
+  console.log(
+    "[streamTextToSpeech] Sending streaming TTS request to:",
+    `${baseUrl}/v1/audio/speech/stream`,
+  );
+  console.log(
+    "[streamTextToSpeech] Request body:",
+    JSON.stringify(requestBody, null, 2),
+  );
+
+  const response = await fetch(`${baseUrl}/v1/audio/speech/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log(
+    "[streamTextToSpeech] Response status:",
+    response.status,
+    response.ok ? "OK" : "FAILED",
+  );
+
+  if (!response.ok) {
+    let errorDetail = `HTTP ${response.status}`;
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorData.error || errorDetail;
+    } catch {
+      // Response might not be JSON
+    }
+    throw new Error(`Streaming TTS request failed: ${errorDetail}`);
+  }
+
+  // Create audio context for decoding
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const reader = response.body.getReader();
+  console.log(
+    "[streamTextToSpeech] Streaming reader created, waiting for chunks...",
+  );
+
+  let chunkIndex = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      console.log(
+        "[streamTextToSpeech] Stream complete. Total chunks received:",
+        chunkIndex,
+      );
+      break;
+    }
+
+    chunkIndex++;
+    console.log(
+      "[streamTextToSpeech] Received chunk",
+      chunkIndex,
+      "with",
+      value ? value.length : 0,
+      "bytes",
+    );
+
+    // Read 4-byte length prefix (big-endian unsigned int)
+    const lengthView = new DataView(value.buffer, value.byteOffset, 4);
+    const chunkLength = lengthView.getUint32(0, false);
+    console.log("[streamTextToSpeech] Chunk payload length:", chunkLength);
+
+    if (chunkLength === 0) {
+      // Error signal from server
+      console.log("[streamTextToSpeech] Received error marker from server");
+      break;
+    }
+
+    // Extract audio data after the 4-byte header
+    const audioData = new Uint8Array(
+      value.buffer,
+      value.byteOffset + 4,
+      chunkLength,
+    );
+
+    try {
+      const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
+      console.log(
+        "[streamTextToSpeech] Decoded chunk",
+        chunkIndex,
+        "- duration:",
+        audioBuffer.duration.toFixed(2),
+        "seconds",
+      );
+      if (onChunk) {
+        onChunk(audioBuffer);
+      }
+
+      // Play the chunk immediately if callback is provided
+      if (onChunk) {
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        source.start();
+      }
+    } catch (err) {
+      console.error("[streamTextToSpeech] Failed to decode audio chunk:", err);
+    }
+  }
+
+  audioContext.close();
+}
+
+/**
  * Speech-to-Speech synthesis using voice clone
  *
  * Transcribes the input audio first, then synthesizes with voice cloning.

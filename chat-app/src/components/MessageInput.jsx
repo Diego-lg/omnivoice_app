@@ -373,29 +373,20 @@ function MessageInput({ onSend, disabled, sttConfig }) {
           disabled={disabled || images.length >= MAX_IMAGES}
           aria-label="Upload image"
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
             <path
-              d="M17 9.5V15.5C17 16.3284 16.3284 17 15.5 17H4.5C3.67157 17 3 16.3284 3 15.5V9.5C3 8.67157 3.67157 8 4.5 8H6.5L8 6H12L13.5 8H15.5C16.3284 8 17 8.67157 17 9.5Z"
+              d="M19 10.5V17C19 18.1046 18.1046 19 17 19H5C3.89543 19 3 18.1046 3 17V10.5C3 9.39543 3.89543 8.5 5 8.5H7L8.5 6.5H13.5L15 8.5H17C18.1046 8.5 19 9.39543 19 10.5Z"
               stroke="currentColor"
               strokeWidth="1.5"
               strokeLinejoin="round"
-              fill="none"
             />
             <path
-              d="M7 17V11H13V17"
+              d="M7 19V12H15V19"
               stroke="currentColor"
               strokeWidth="1.5"
               strokeLinejoin="round"
-              fill="none"
             />
-            <circle
-              cx="10"
-              cy="4"
-              r="2"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              fill="none"
-            />
+            <circle cx="11" cy="3.5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
         <button
@@ -413,20 +404,11 @@ function MessageInput({ onSend, disabled, sttConfig }) {
               </span>
             </div>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path
-                d="M10 2v4M6 4v3M14 4v3M4 7v4C4 12.5 6.5 15 10 15s6-2.5 6-7V7"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                fill="none"
-              />
-              <path
-                d="M7 16v2M13 16v2"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <rect x="8" y="2" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M6 9C6 12.866 9.13401 16 11 16C14 16 16 12.866 16 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              <path d="M8 18V20M14 18V20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M5 16V17C5 18.6569 6.34315 20 8 20M17 16V17C17 18.6569 15.6569 20 14 20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
             </svg>
           )}
         </button>
@@ -436,9 +418,7 @@ function MessageInput({ onSend, disabled, sttConfig }) {
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={
-            isRecording ? "Recording... speak now" : "Type your message..."
-          }
+          placeholder={isRecording ? "Recording..." : "Type your message..."}
           rows={1}
           disabled={disabled}
         />

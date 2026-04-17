@@ -89,8 +89,8 @@ export async function* streamMinimaxResponse(
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
 
-  // Track last yielded content to avoid duplicates (MiniMax may send accumulated text)
-  let lastYieldedContent = null;
+  // Track the character position we've yielded up to (handles MiniMax sending accumulated text)
+  let lastYieldedLength = 0;
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -130,30 +130,31 @@ export async function* streamMinimaxResponse(
           }
 
           if (content) {
-            // Skip if content starts with last yielded content (accumulated text scenario)
-            // This handles MiniMax sending full accumulated text in each chunk
-            if (
-              lastYieldedContent &&
-              content.startsWith(lastYieldedContent) &&
-              content !== lastYieldedContent
-            ) {
-              // Extract only the new portion that wasn't yielded before
-              const newContent = content.substring(lastYieldedContent.length);
+            const contentLength = content.length;
+
+            // Skip content that's at or before our last yielded position
+            // This handles MiniMax sending accumulated text in each chunk
+            if (contentLength <= lastYieldedLength) {
               console.log(
-                "[MiniMax] Yielding incremental content:",
+                "[MiniMax] Skipping content length",
+                contentLength,
+                "≤ lastYieldedLength",
+                lastYieldedLength,
+              );
+              continue;
+            }
+
+            // Extract only the new portion beyond what we've already yielded
+            const newContent = content.substring(lastYieldedLength);
+
+            if (newContent.trim()) {
+              console.log(
+                "[MiniMax] Yielding new content:",
                 newContent.substring(0, 50) +
                   (newContent.length > 50 ? "..." : ""),
               );
-              lastYieldedContent = content;
               yield newContent;
-            } else if (content !== lastYieldedContent) {
-              // Only yield genuinely new content
-              console.log(
-                "[MiniMax] Yielding content:",
-                content.substring(0, 50) + (content.length > 50 ? "..." : ""),
-              );
-              lastYieldedContent = content;
-              yield content;
+              lastYieldedLength = contentLength;
             }
           }
         }

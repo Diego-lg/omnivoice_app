@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from .audio import encode_audio_to_base64
 from .model import get_model, init_model
@@ -168,6 +169,104 @@ async def synthesize_speech(request: SpeechRequest) -> Response:
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
+
+
+@app.post("/v1/audio/speech/stream")
+async def synthesize_speech_stream(request: SpeechRequest):
+    """Generate speech audio from text with streaming.
+
+    This endpoint yields audio chunks as they are generated, enabling
+    progressive playback without waiting for the complete audio.
+
+    Args:
+        request: Speech synthesis request.
+
+    Returns:
+        Streaming audio response (WAV format chunks).
+    """
+    model = get_model()
+
+    if not model.is_loaded:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not loaded. Check server logs.",
+        )
+
+    # Validate voice mode and parameters (same as non-streaming)
+    voice_mode = VoiceMode(request.voice.lower())
+    ref_audio = None
+    ref_text = None
+    instruct = None
+    voice_profile_id = None
+
+    if voice_mode == VoiceMode.CLONE:
+        if request.voice_config.ref_audio:
+            ref_audio = request.voice_config.ref_audio
+            ref_text = request.voice_config.ref_text
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Voice mode 'clone' requires ref_audio in voice_config",
+            )
+    elif voice_mode == VoiceMode.DESIGN:
+        if request.voice_config.instruct:
+            instruct = request.voice_config.instruct
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Voice mode 'design' requires instruct in voice_config",
+            )
+    elif voice_mode == VoiceMode.AUTO:
+        pass
+
+    async def audio_stream_generator():
+        try:
+            logger.info(f"Streaming TTS request received for text: {request.input[:50]}...")
+            chunk_count = 0
+            for chunk in model.generate_stream(
+                text=request.input,
+                voice_mode=request.voice,
+                ref_audio=ref_audio,
+                ref_text=ref_text,
+                instruct=instruct,
+                voice_profile_id=voice_profile_id,
+                language=request.generation_config.language,
+                speed=request.generation_config.speed,
+                duration=request.generation_config.duration,
+                num_step=request.generation_config.num_step,
+                guidance_scale=request.generation_config.guidance_scale,
+            ):
+                chunk_count += 1
+                logger.info(f"Generated chunk {chunk_count}, shape: {chunk.shape}, duration: {chunk.shape[1] / model.sampling_rate:.2f}s")
+
+                # Convert chunk to WAV bytes
+                buffer = io.BytesIO()
+                sf.write(buffer, chunk.T, model.sampling_rate, format="WAV")
+                buffer.seek(0)
+                audio_bytes = buffer.read()
+                logger.info(f"Encoded chunk {chunk_count} to {len(audio_bytes)} bytes")
+
+                # Yield the chunk with a length prefix (4 bytes, big-endian)
+                import struct
+                length_prefix = struct.pack(">I", len(audio_bytes))
+                yield length_prefix + audio_bytes
+
+            logger.info(f"Streaming complete. Total chunks sent: {chunk_count}")
+
+        except Exception as e:
+            logger.error(f"Streaming synthesis failed: {e}")
+            # Send error marker (empty chunk signals end to client)
+            yield struct.pack(">I", 0)
+
+    # Custom streaming response that handles chunked audio data
+    return StreamingResponse(
+        audio_stream_generator(),
+        media_type="application/octet-stream",
+        headers={
+            "X-Sampling-Rate": str(model.sampling_rate),
+            "X-Chunk-Duration": "5.0",
+        },
+    )
 
 
 @app.post("/v1/voices", response_model=VoiceProfile, status_code=201)
