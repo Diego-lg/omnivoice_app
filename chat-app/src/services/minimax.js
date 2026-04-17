@@ -88,6 +88,7 @@ export async function* streamMinimaxResponse(
   // Parse SSE stream
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
+  const seenChunks = new Set(); // Track seen chunks to avoid duplicates
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -103,29 +104,45 @@ export async function* streamMinimaxResponse(
     }
 
     try {
+      // Create a hash of the raw data to detect duplicate chunks
+      const chunkHash = data.slice(0, 200); // Use first 200 chars as identifier
+      if (seenChunks.has(chunkHash)) {
+        console.log("[MiniMax] Skipping duplicate chunk");
+        continue;
+      }
+      seenChunks.add(chunkHash);
+
       const parsed = JSON.parse(data);
       console.log("[MiniMax] Parsed chunk, keys:", Object.keys(parsed));
 
-      let content = null;
+      // Process ALL choices in the chunk, not just the first one
+      if (parsed.choices && parsed.choices.length > 0) {
+        for (const choice of parsed.choices) {
+          let content = null;
 
-      // OpenAI-style streaming
-      if (parsed.choices?.[0]?.delta?.content) {
-        content = parsed.choices[0].delta.content;
-      }
+          // OpenAI-style streaming
+          if (choice.delta?.content) {
+            content = choice.delta.content;
+          }
 
-      // MiniMax-specific format
-      if (parsed.choices?.[0]?.text) {
-        content = parsed.choices[0].text;
-      }
+          // MiniMax-specific text format
+          if (choice.text) {
+            content = choice.text;
+          }
 
-      // Base content field
-      if (parsed.choices?.[0]?.message?.content) {
-        content = parsed.choices[0].message.content;
-      }
+          // Base message content field
+          if (choice.message?.content) {
+            content = choice.message.content;
+          }
 
-      if (content) {
-        console.log("[MiniMax] Yielding:", content.substring(0, 50) + "...");
-        yield content;
+          if (content) {
+            console.log(
+              "[MiniMax] Yielding:",
+              content.substring(0, 50) + "...",
+            );
+            yield content;
+          }
+        }
       }
     } catch (e) {
       console.warn(

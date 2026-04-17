@@ -1,8 +1,22 @@
+import { useRef, useEffect } from "react";
 import ChatMessage from "./ChatMessage";
 import "./ChatContainer.css";
 
-function ChatContainer({ messages, chatEndRef, error }) {
+function ChatContainer({ messages, chatEndRef, error, scrollToIndex, onBranchClick }) {
   const hasMessages = messages.length > 0;
+  const messageRefs = useRef([]);
+
+  useEffect(() => {
+    if (
+      typeof scrollToIndex === "number" &&
+      messageRefs.current[scrollToIndex]
+    ) {
+      messageRefs.current[scrollToIndex].scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [scrollToIndex]);
 
   return (
     <div className="chat-container">
@@ -27,8 +41,13 @@ function ChatContainer({ messages, chatEndRef, error }) {
         </div>
       )}
       <div className="messages-list">
-        {messages.map((msg) => (
-          <ChatMessage key={msg.id} message={msg} />
+        {messages.map((msg, index) => (
+          <ChatMessage
+            key={msg.id}
+            ref={(el) => (messageRefs.current[index] = el)}
+            message={msg}
+            onBranchClick={onBranchClick}
+          />
         ))}
         <div ref={chatEndRef} />
       </div>

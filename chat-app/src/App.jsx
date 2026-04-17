@@ -2,15 +2,21 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import Header from "./components/Header";
 import ChatContainer from "./components/ChatContainer";
 import MessageInput from "./components/MessageInput";
+import SearchOverlay from "./components/SearchOverlay";
 import SettingsModal from "./components/SettingsModal";
+import PersonaEditor from "./components/PersonaEditor";
 import { minimax, ollama } from "./services/api";
+import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
-const STORAGE_KEY = "omnivoice_chat_config";
+const CONFIG_STORAGE_KEY = "omnivoice_chat_config";
+const BRANCHES_STORAGE_KEY = "omnivoice_chat_branches";
+const PERSONAS_STORAGE_KEY = "omnivoice_chat_personas";
+const SELECTED_PERSONA_KEY = "omnivoice_chat_selected_persona";
 
 function loadConfig() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (saved) {
       return JSON.parse(saved);
     }
@@ -26,17 +32,113 @@ function loadConfig() {
 
 function saveConfig(config) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
   } catch {}
+}
+
+function loadBranches() {
+  try {
+    const saved = localStorage.getItem(BRANCHES_STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {}
+  return null;
+}
+
+function saveBranches(branches) {
+  try {
+    localStorage.setItem(BRANCHES_STORAGE_KEY, JSON.stringify(branches));
+  } catch {}
+}
+
+function loadPersonas() {
+  try {
+    const saved = localStorage.getItem(PERSONAS_STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {}
+  return [];
+}
+
+function savePersonas(personas) {
+  try {
+    localStorage.setItem(PERSONAS_STORAGE_KEY, JSON.stringify(personas));
+  } catch {}
+}
+
+function loadSelectedPersonaId() {
+  try {
+    const saved = localStorage.getItem(SELECTED_PERSONA_KEY);
+    if (saved) {
+      return saved;
+    }
+  } catch {}
+  return DEFAULT_PERSONA_ID;
+}
+
+function saveSelectedPersonaId(personaId) {
+  try {
+    localStorage.setItem(SELECTED_PERSONA_KEY, personaId);
+  } catch {}
+}
+
+function createInitialBranch() {
+  return {
+    id: "main",
+    name: "Main",
+    parentBranchId: null,
+    rootMessageId: null,
+    messages: [],
+  };
+}
+
+function getAllPersonas(customPersonas) {
+  return [...PREMADE_PERSONAS, ...customPersonas];
+}
+
+function getPersonaById(personas, id) {
+  return (
+    personas.find((p) => p.id === id) ||
+    personas.find((p) => p.id === DEFAULT_PERSONA_ID)
+  );
 }
 
 function App() {
   const [config, setConfig] = useState(loadConfig);
-  const [messages, setMessages] = useState([]);
+  const [branches, setBranches] = useState(() => {
+    const saved = loadBranches();
+    return (
+      saved || { branches: [createInitialBranch()], currentBranchId: "main" }
+    );
+  });
+  const [customPersonas, setCustomPersonas] = useState(loadPersonas);
+  const [selectedPersonaId, setSelectedPersonaId] = useState(
+    loadSelectedPersonaId,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPersonaEditor, setShowPersonaEditor] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [scrollToIndex, setScrollToIndex] = useState(null);
   const [error, setError] = useState(null);
   const chatEndRef = useRef(null);
+
+  const allPersonas = getAllPersonas(customPersonas);
+  const currentPersona = getPersonaById(allPersonas, selectedPersonaId);
+
+  useEffect(() => {
+    saveBranches(branches);
+  }, [branches]);
+
+  useEffect(() => {
+    savePersonas(customPersonas);
+  }, [customPersonas]);
+
+  useEffect(() => {
+    saveSelectedPersonaId(selectedPersonaId);
+  }, [selectedPersonaId]);
 
   const updateConfig = useCallback((updates) => {
     setConfig((prev) => {
@@ -52,41 +154,126 @@ function App() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [
+    branches.branches.find((b) => b.id === branches.currentBranchId)?.messages,
+    scrollToBottom,
+  ]);
+
+  const createBranch = useCallback(
+    (fromMessageId) => {
+      const newBranchId = `branch-${Date.now()}`;
+      const currentBranchIndex = branches.branches.findIndex(
+        (b) => b.id === branches.currentBranchId,
+      );
+      const currentBranch = branches.branches[currentBranchIndex];
+
+      const messageIndex = currentBranch.messages.findIndex(
+        (m) => m.id === fromMessageId,
+      );
+      const branchMessages = currentBranch.messages.slice(0, messageIndex + 1);
+
+      const branchCount =
+        branches.branches.filter((b) => b.id.startsWith("branch-")).length + 1;
+
+      const newBranch = {
+        id: newBranchId,
+        name: `Branch ${branchCount}`,
+        parentBranchId: branches.currentBranchId,
+        rootMessageId: fromMessageId,
+        messages: branchMessages,
+      };
+
+      setBranches((prev) => ({
+        branches: [...prev.branches, newBranch],
+        currentBranchId: newBranchId,
+      }));
+    },
+    [branches],
+  );
+
+  const switchBranch = useCallback((branchId) => {
+    setBranches((prev) => ({
+      ...prev,
+      currentBranchId: branchId,
+    }));
+    setShowBranchSelector(false);
+  }, []);
+
+  const handlePersonaChange = useCallback((personaId) => {
+    setSelectedPersonaId(personaId);
+  }, []);
+
+  const handlePersonaSave = useCallback((savedPersonas) => {
+    setCustomPersonas(savedPersonas);
+  }, []);
 
   const sendMessage = useCallback(
-    async (content) => {
-      if (!content.trim() || isLoading) return;
+    async (content, images = []) => {
+      if ((!content.trim() && images.length === 0) || isLoading) return;
 
       const userMessage = {
         id: Date.now(),
         role: "user",
         content: content.trim(),
+        images: images,
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      const currentBranchIndex = branches.branches.findIndex(
+        (b) => b.id === branches.currentBranchId,
+      );
+
+      setBranches((prev) => {
+        const newBranches = [...prev.branches];
+        newBranches[currentBranchIndex] = {
+          ...newBranches[currentBranchIndex],
+          messages: [...newBranches[currentBranchIndex].messages, userMessage],
+        };
+        return { ...prev, branches: newBranches };
+      });
+
       setIsLoading(true);
       setError(null);
 
       const assistantMessageId = Date.now() + 1;
       let assistantContent = "";
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantMessageId,
-          role: "assistant",
-          content: "",
-          timestamp: new Date(),
-          isLoading: true,
-        },
-      ]);
+      setBranches((prev) => {
+        const newBranches = [...prev.branches];
+        newBranches[currentBranchIndex] = {
+          ...newBranches[currentBranchIndex],
+          messages: [
+            ...newBranches[currentBranchIndex].messages,
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              content: "",
+              timestamp: new Date(),
+              isLoading: true,
+              isStreaming: true,
+            },
+          ],
+        };
+        return { ...prev, branches: newBranches };
+      });
 
-      const chatHistory = [...messages, userMessage].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // Build chat history with system prompt
+      const systemMessage = {
+        role: "system",
+        content: currentPersona.systemPrompt,
+      };
+
+      const currentMessages =
+        branches.branches.find((b) => b.id === branches.currentBranchId)
+          ?.messages || [];
+      const chatHistory = [
+        systemMessage,
+        ...currentMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        { role: "user", content: content.trim() },
+      ];
 
       try {
         let stream;
@@ -112,53 +299,127 @@ function App() {
 
         for await (const chunk of stream) {
           assistantContent += chunk;
-          setMessages((prev) =>
-            prev.map((msg) =>
+          setBranches((prev) => {
+            const newBranches = [...prev.branches];
+            const idx = newBranches.findIndex(
+              (b) => b.id === branches.currentBranchId,
+            );
+            newBranches[idx] = {
+              ...newBranches[idx],
+              messages: newBranches[idx].messages.map((msg) =>
+                msg.id === assistantMessageId
+                  ? {
+                      ...msg,
+                      content: assistantContent,
+                      isLoading: false,
+                      isStreaming: true,
+                    }
+                  : msg,
+              ),
+            };
+            return { ...prev, branches: newBranches };
+          });
+        }
+
+        // Streaming complete - set isStreaming to false
+        setBranches((prev) => {
+          const newBranches = [...prev.branches];
+          const idx = newBranches.findIndex(
+            (b) => b.id === branches.currentBranchId,
+          );
+          newBranches[idx] = {
+            ...newBranches[idx],
+            messages: newBranches[idx].messages.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, content: assistantContent, isLoading: false }
+                ? { ...msg, isStreaming: false }
                 : msg,
             ),
-          );
-        }
+          };
+          return { ...prev, branches: newBranches };
+        });
       } catch (err) {
         setError(err.message);
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  content: `Error: ${err.message}`,
-                  isLoading: false,
-                  isError: true,
-                }
-              : msg,
-          ),
-        );
+        setBranches((prev) => {
+          const newBranches = [...prev.branches];
+          const idx = newBranches.findIndex(
+            (b) => b.id === branches.currentBranchId,
+          );
+          newBranches[idx] = {
+            ...newBranches[idx],
+            messages: newBranches[idx].messages.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    content: `Error: ${err.message}`,
+                    isLoading: false,
+                    isStreaming: false,
+                    isError: true,
+                  }
+                : msg,
+            ),
+          };
+          return { ...prev, branches: newBranches };
+        });
       } finally {
         setIsLoading(false);
       }
     },
-    [config, messages, isLoading],
+    [config, branches, isLoading, currentPersona],
   );
 
   const clearChat = useCallback(() => {
-    setMessages([]);
+    setBranches((prev) => {
+      const newBranches = [...prev.branches];
+      const idx = newBranches.findIndex((b) => b.id === prev.currentBranchId);
+      newBranches[idx] = {
+        ...newBranches[idx],
+        messages: [],
+      };
+      return { ...prev, branches: newBranches };
+    });
     setError(null);
   }, []);
+
+  const handleSearchNavigate = useCallback((index) => {
+    setScrollToIndex(index);
+    setTimeout(() => setScrollToIndex(null), 100);
+  }, []);
+
+  const [showBranchSelector, setShowBranchSelector] = useState(false);
+
+  const currentBranch =
+    branches.branches.find((b) => b.id === branches.currentBranchId) ||
+    branches.branches[0];
+  const messages = currentBranch?.messages || [];
 
   return (
     <div className="app">
       <Header
         config={config}
+        branches={branches}
+        currentBranchName={currentBranch?.name || "Main"}
+        personas={allPersonas}
+        selectedPersonaId={selectedPersonaId}
         onProviderChange={(provider) => updateConfig({ provider })}
+        onPersonaChange={handlePersonaChange}
+        onEditPersonas={() => setShowPersonaEditor(true)}
         onSettingsClick={() => setShowSettings(true)}
         onClearChat={clearChat}
+        onSearchClick={() => setShowSearch(true)}
+        onBranchSwitch={switchBranch}
+        onBranchCreate={createBranch}
+        showBranchSelector={showBranchSelector}
+        onToggleBranchSelector={() =>
+          setShowBranchSelector(!showBranchSelector)
+        }
       />
       <div className="app-content">
         <ChatContainer
           messages={messages}
           chatEndRef={chatEndRef}
           error={error}
+          scrollToIndex={scrollToIndex}
+          onBranchClick={createBranch}
         />
         <MessageInput onSend={sendMessage} disabled={isLoading} />
       </div>
@@ -167,6 +428,22 @@ function App() {
           config={config}
           onUpdate={updateConfig}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {showPersonaEditor && (
+        <PersonaEditor
+          personas={customPersonas}
+          selectedPersonaId={selectedPersonaId}
+          onPersonaChange={handlePersonaChange}
+          onSave={handlePersonaSave}
+          onClose={() => setShowPersonaEditor(false)}
+        />
+      )}
+      {showSearch && (
+        <SearchOverlay
+          messages={messages}
+          onClose={() => setShowSearch(false)}
+          onNavigate={handleSearchNavigate}
         />
       )}
     </div>

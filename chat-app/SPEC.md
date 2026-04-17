@@ -14,6 +14,7 @@
 - **State Management**: React hooks (useState, useRef, useEffect)
 - **HTTP Client**: Native fetch API
 - **Build Tool**: Vite
+- **Markdown**: react-markdown, react-syntax-highlighter, remark-gfm
 
 ## Visual & UI Specification
 
@@ -131,6 +132,93 @@
 - Model selector (if multiple models available)
 - Model dropdown: llama3.2, mistral, etc.
 
+### 7. TypingIndicator Component
+
+**Files**: `TypingIndicator.jsx`, `TypingIndicator.css`
+
+**Description**: Animated indicator showing when AI is thinking/typing
+
+**Features**:
+
+- Three bouncing dots animation
+- "AI is thinking..." label
+- Smooth fade-in/out transitions
+- Shows before first token arrives during streaming
+
+**Animation**:
+
+- Bounce effect with staggered timing (0ms, 150ms, 300ms delays)
+- Duration: 600ms per bounce cycle
+- Infinite loop until streaming begins
+
+### 8. SearchOverlay Component
+
+**Files**: `SearchOverlay.jsx`, `SearchOverlay.css`
+
+**Description**: Full-screen overlay for searching through conversation history
+
+**Features**:
+
+- Search icon in header opens overlay
+- Real-time case-insensitive filtering
+- Highlighted search terms in results
+- Click to navigate to message
+- Keyboard navigation (arrows to select, Enter to go, Escape to close)
+- Shows message preview with highlighted matches
+- Message timestamp and role indicator
+
+### 9. PersonaSelector Component
+
+**Files**: `PersonaSelector.jsx`, `PersonaSelector.css`
+
+**Description**: Dropdown selector for choosing AI conversation personas
+
+**Features**:
+
+- 5 premade personas: Assistant, Code Helper, Creative Writer, Technical Analyst, Debate Partner
+- Custom persona selection when available
+- Current persona indicator
+- Smooth dropdown animation
+
+### 10. PersonaEditor Component
+
+**Files**: `PersonaEditor.jsx`, `PersonaEditor.css`
+
+**Description**: Modal interface for creating and managing custom personas
+
+**Features**:
+
+- Create custom personas with emoji avatars
+- Edit existing custom personas
+- Delete custom personas
+- System prompt input for persona definition
+- 5 predefined emoji options for avatar
+- Personas persisted to localStorage
+- System prompts prepended to API messages
+
+**Predefined Personas**:
+| Persona | Emoji | Description |
+|---------|-------|-------------|
+| Assistant | 🤖 | General helpful assistant |
+| Code Helper | 💻 | Programming and code assistance |
+| Creative Writer | ✍️ | Creative writing and brainstorming |
+| Technical Analyst | 📊 | Technical analysis and research |
+| Debate Partner | ⚖️ | Discussion and debate partner |
+
+### 11. ChatMessage Component (Enhanced)
+
+**Files**: `ChatMessage.jsx`, `ChatMessage.css`
+
+**Enhanced Features**:
+
+- Full markdown rendering with `react-markdown`
+- Syntax highlighting for code blocks with `react-syntax-highlighter`
+- Support for: bold, italic, inline code, code blocks, blockquotes, lists, links, tables
+- GitHub-flavored markdown via `remark-gfm`
+- Streaming cursor animation during AI response
+- Max-height with scroll for long messages
+- Smooth container expansion animation
+
 ## Functionality Specification
 
 ### Core Features
@@ -172,6 +260,63 @@
    - Clear chat option in header menu
    - No localStorage persistence (ephemeral by design)
 
+6. **Typing Indicators**
+   - Animated "AI is thinking..." indicator with bouncing dots
+   - Shows before first token arrives during streaming
+   - Component: `TypingIndicator.jsx` + `TypingIndicator.css`
+   - Three bouncing dots with staggered animation timing
+
+7. **Markdown Rendering**
+   - Full markdown support for AI and user messages
+   - Dependencies: `react-markdown`, `react-syntax-highlighter`, `remark-gfm`
+   - Supports: bold, italic, inline code, code blocks with syntax highlighting, blockquotes, lists, links, tables
+   - Code blocks use Prism syntax highlighting theme
+
+8. **Image Upload**
+   - Upload images via button click or drag-and-drop
+   - Support for up to 4 images per message
+   - Image previews with remove functionality
+   - Images stored as base64 data URLs
+   - Visual drop zone indicator when dragging files
+   - File type validation (images only)
+
+9. **Character/Token Counter**
+   - Real-time character count in input area
+   - Estimated token count (chars / 4)
+   - Shows image count when images are attached
+   - Displayed below the input textarea
+
+10. **Message Search**
+    - Search icon in header opens search overlay
+    - Real-time case-insensitive filtering
+    - Highlighted search terms in results
+    - Click to navigate to message
+    - Keyboard navigation (arrows, Enter, Escape)
+    - Shows message preview with context
+
+11. **Conversation Branching**
+    - Fork conversations at any user message
+    - Branch selector dropdown in header
+    - Visual indicator of current branch
+    - Branches persisted to localStorage
+    - Each branch maintains its own message history
+    - Branch naming/identification in dropdown
+
+12. **Multiple Persona Editor**
+    - 5 premade personas: Assistant, Code Helper, Creative Writer, Technical Analyst, Debate Partner
+    - Custom persona creation with emoji avatars
+    - Edit/delete custom personas
+    - System prompts prepended to API messages
+    - Personas persisted to localStorage
+    - Persona data stored in `src/data/personas.js`
+
+13. **Enhanced Auto-response Streaming**
+    - Blinking cursor during streaming
+    - Streaming progress indicator
+    - Smooth container expansion
+    - Max-height with scroll for long messages
+    - Performance optimizations for large responses
+
 ### User Interactions
 
 | Action          | Result                           |
@@ -209,7 +354,17 @@ chat-app/
 │   │   ├── ProviderSelector.jsx
 │   │   ├── ProviderSelector.css
 │   │   ├── SettingsModal.jsx
-│   │   └── SettingsModal.css
+│   │   ├── SettingsModal.css
+│   │   ├── TypingIndicator.jsx
+│   │   ├── TypingIndicator.css
+│   │   ├── SearchOverlay.jsx
+│   │   ├── SearchOverlay.css
+│   │   ├── PersonaSelector.jsx
+│   │   ├── PersonaSelector.css
+│   │   ├── PersonaEditor.jsx
+│   │   └── PersonaEditor.css
+│   ├── data/
+│   │   └── personas.js
 │   └── services/
 │       ├── api.js
 │       ├── minimax.js
@@ -217,6 +372,8 @@ chat-app/
 ```
 
 ## Acceptance Criteria
+
+### Core Functionality
 
 1. ✅ Application renders with black/white theme
 2. ✅ User can type and send messages
@@ -228,3 +385,59 @@ chat-app/
 8. ✅ Error states display appropriately
 9. ✅ Responsive layout works on mobile/tablet/desktop
 10. ✅ Smooth animations on message appearance
+
+### New Features
+
+#### Typing Indicators
+
+11. ✅ Animated typing indicator displays before first token
+12. ✅ Bouncing dots animation with staggered timing
+13. ✅ Indicator disappears when streaming begins
+
+#### Markdown Rendering
+
+14. ✅ AI messages render full markdown formatting
+15. ✅ Code blocks display with syntax highlighting
+16. ✅ Support for bold, italic, links, lists, tables, blockquotes
+
+#### Image Upload
+
+17. ✅ User can upload images via button click
+18. ✅ Drag-and-drop image upload works
+19. ✅ Up to 4 images per message supported
+20. ✅ Image previews display with remove option
+
+#### Character/Token Counter
+
+21. ✅ Real-time character count displayed
+22. ✅ Estimated token count shown
+23. ✅ Image count displayed when images attached
+
+#### Message Search
+
+24. ✅ Search icon opens search overlay
+25. ✅ Real-time case-insensitive filtering
+26. ✅ Search terms highlighted in results
+27. ✅ Click navigates to message
+28. ✅ Keyboard navigation works (arrows, Enter, Escape)
+
+#### Conversation Branching
+
+29. ✅ User can fork conversation at any message
+30. ✅ Branch selector dropdown in header
+31. ✅ Branches persist to localStorage
+32. ✅ Each branch maintains independent message history
+
+#### Multiple Persona Editor
+
+33. ✅ 5 premade personas available
+34. ✅ Custom persona creation with emoji avatars
+35. ✅ Edit and delete custom personas
+36. ✅ Personas persist to localStorage
+37. ✅ System prompts correctly prepended to API messages
+
+#### Enhanced Streaming
+
+38. ✅ Blinking cursor during streaming
+39. ✅ Smooth container expansion animation
+40. ✅ Max-height scroll for long messages

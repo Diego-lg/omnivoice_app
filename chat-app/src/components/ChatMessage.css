@@ -44,15 +44,6 @@
   border: 1px solid var(--error);
 }
 
-.message-content {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-}
-
 .message-time {
   display: block;
   font-size: 11px;
@@ -102,4 +93,299 @@
     transform: scale(1);
     opacity: 1;
   }
+}
+
+/* Markdown Styles */
+.message-content p {
+  margin: 0 0 12px 0;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 150ms ease;
+}
+
+.message-content a:hover {
+  border-bottom-color: var(--accent);
+}
+
+.message-content code {
+  font-family: "Fira Code", "Consolas", "Monaco", monospace;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.message-content pre {
+  margin: 16px 0;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.message-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.message-content blockquote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--text-tertiary);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 0 4px 4px 0;
+}
+
+.message-content blockquote p {
+  margin: 0;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.message-content li {
+  margin: 4px 0;
+}
+
+.message-content ul {
+  list-style-type: disc;
+}
+
+.message-content ol {
+  list-style-type: decimal;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.message-content h1 {
+  font-size: 1.4em;
+}
+
+.message-content h2 {
+  font-size: 1.25em;
+}
+
+.message-content h3 {
+  font-size: 1.1em;
+}
+
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  font-size: 1em;
+}
+
+.message-content hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--text-tertiary);
+  opacity: 0.3;
+}
+
+.message-content table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+}
+
+.message-content th,
+.message-content td {
+  padding: 8px 12px;
+  border: 1px solid var(--text-tertiary);
+  text-align: left;
+}
+
+.message-content th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+}
+
+/* Message Image Styles */
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.message-images.multiple {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.message-images:empty {
+  display: none;
+}
+
+.message-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+.message-images.multiple .message-image {
+  max-height: 200px;
+}
+
+.message-user .message-images {
+  justify-content: flex-end;
+}
+
+.message-assistant .message-images {
+  justify-content: flex-start;
+}
+
+/* Message Footer with Time and Actions */
+.message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.message-user .message-footer {
+  justify-content: flex-end;
+}
+
+.message-assistant .message-footer {
+  justify-content: flex-start;
+}
+
+/* Branch Button */
+.branch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 150ms ease;
+}
+
+.message:hover .branch-btn {
+  opacity: 1;
+}
+
+.branch-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+}
+
+/* Streaming Indicator and Blinking Cursor */
+.message-streaming .message-bubble {
+  transition: max-height 0.3s ease-out;
+}
+
+.streaming-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: streamingPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes streamingPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.blinking-cursor {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+  animation: cursorBlink 1s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Message content with scroll for long messages */
+.message-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  transition: max-height 0.3s ease-out;
+}
+
+.message-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-content::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 3px;
+  opacity: 0.5;
+}
+
+.message-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Ensure smooth text updates during streaming */
+.message-streaming .message-content {
+  contain: content;
 }
