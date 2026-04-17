@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -14,12 +14,74 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   const isError = message.isError;
   const isStreaming = message.isStreaming;
   const images = message.images || [];
+  const hasAudio = message.audioUrl || message.audioBlob;
+
+  // Audio player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const audioRef = useRef(null);
 
   const formatTime = (date) => {
     if (!date) return "";
     const d = new Date(date);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
+
+  const formatAudioTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const getAudioUrl = () => {
+    if (message.audioUrl) return message.audioUrl;
+    if (message.audioBlob) return URL.createObjectURL(message.audioBlob);
+    return null;
+  };
+
+  const togglePlayPause = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleAudioTimeUpdate = () => {
+    if (!audioRef.current) return;
+    setAudioProgress(audioRef.current.currentTime);
+  };
+
+  const handleAudioLoadedMetadata = () => {
+    if (!audioRef.current) return;
+    setAudioDuration(audioRef.current.duration);
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setAudioProgress(0);
+  };
+
+  const handleProgressBarClick = (e) => {
+    if (!audioRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    audioRef.current.currentTime = percent * audioDuration;
+    setAudioProgress(audioRef.current.currentTime);
+  };
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (message.audioBlob && message.audioUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(message.audioUrl);
+      }
+    };
+  }, [message.audioBlob, message.audioUrl]);
 
   return (
     <div
@@ -83,6 +145,60 @@ const ChatMessage = React.forwardRef(function ChatMessage(
                 </span>
               )}
             </div>
+            {hasAudio && (
+              <div className="audio-player">
+                <audio
+                  ref={audioRef}
+                  src={getAudioUrl()}
+                  onTimeUpdate={handleAudioTimeUpdate}
+                  onLoadedMetadata={handleAudioLoadedMetadata}
+                  onEnded={handleAudioEnded}
+                />
+                <button
+                  className="audio-play-btn"
+                  onClick={togglePlayPause}
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                    >
+                      <rect x="3" y="2" width="4" height="12" rx="1" />
+                      <rect x="9" y="2" width="4" height="12" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                    >
+                      <path d="M4 2.5v11l9-5.5z" />
+                    </svg>
+                  )}
+                </button>
+                <div
+                  className="audio-progress-container"
+                  onClick={handleProgressBarClick}
+                >
+                  <div className="audio-progress-bar">
+                    <div
+                      className="audio-progress-fill"
+                      style={{
+                        width: `${(audioProgress / audioDuration) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <span className="audio-time">
+                  {formatAudioTime(audioProgress)} /{" "}
+                  {formatAudioTime(audioDuration)}
+                </span>
+              </div>
+            )}
             <div className="message-footer">
               <span className="message-time">
                 {formatTime(message.timestamp)}

@@ -7,19 +7,24 @@ function MessageInput({ onSend, disabled }) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedBlob, setRecordedBlob] = useState(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
 
   const handleSubmit = useCallback(() => {
-    if ((input.trim() || images.length > 0) && !disabled) {
-      onSend(input, images);
+    if ((input.trim() || images.length > 0 || recordedBlob) && !disabled) {
+      onSend(input, images, recordedBlob);
       setInput("");
       setImages([]);
+      setRecordedBlob(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
     }
-  }, [input, images, disabled, onSend]);
+  }, [input, images, recordedBlob, disabled, onSend]);
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -39,38 +44,44 @@ function MessageInput({ onSend, disabled }) {
     textarea.style.height = `${newHeight}px`;
   }, []);
 
-  const handleFileSelect = useCallback((e) => {
-    const files = Array.from(e.target.files || []);
-    addImages(files);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  }, [images]);
+  const handleFileSelect = useCallback(
+    (e) => {
+      const files = Array.from(e.target.files || []);
+      addImages(files);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    [images],
+  );
 
-  const addImages = useCallback((files) => {
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    const remainingSlots = MAX_IMAGES - images.length;
-    const filesToAdd = imageFiles.slice(0, remainingSlots);
+  const addImages = useCallback(
+    (files) => {
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      const remainingSlots = MAX_IMAGES - images.length;
+      const filesToAdd = imageFiles.slice(0, remainingSlots);
 
-    if (filesToAdd.length === 0) return;
+      if (filesToAdd.length === 0) return;
 
-    const readers = filesToAdd.map((file) => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          resolve({
-            name: file.name,
-            dataUrl: e.target.result,
-          });
-        };
-        reader.readAsDataURL(file);
+      const readers = filesToAdd.map((file) => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            resolve({
+              name: file.name,
+              dataUrl: e.target.result,
+            });
+          };
+          reader.readAsDataURL(file);
+        });
       });
-    });
 
-    Promise.all(readers).then((newImages) => {
-      setImages((prev) => [...prev, ...newImages]);
-    });
-  }, [images]);
+      Promise.all(readers).then((newImages) => {
+        setImages((prev) => [...prev, ...newImages]);
+      });
+    },
+    [images],
+  );
 
   const handleRemoveImage = useCallback((index) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
@@ -88,15 +99,64 @@ function MessageInput({ onSend, disabled }) {
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    addImages(files);
-  }, [addImages]);
+  const handleDrop = useCallback(
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer.files);
+      addImages(files);
+    },
+    [addImages],
+  );
 
-  const canSend = (input.trim().length > 0 || images.length > 0) && !disabled;
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        setRecordedBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleVoiceInputClick = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const handleRemoveRecording = () => {
+    setRecordedBlob(null);
+  };
+
+  const canSend =
+    (input.trim().length > 0 || images.length > 0 || recordedBlob) && !disabled;
 
   // Calculate character and token counts
   const charCount = input.length;
@@ -138,6 +198,37 @@ function MessageInput({ onSend, disabled }) {
           ))}
         </div>
       )}
+      {recordedBlob && (
+        <div className="audio-preview-container">
+          <div className="audio-preview">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M8 1v10M4 5v6M12 5v6M2 7v4M14 7v4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                fill="none"
+              />
+            </svg>
+            <span>Recorded audio</span>
+            <button
+              type="button"
+              className="remove-audio-button"
+              onClick={handleRemoveRecording}
+              aria-label="Remove recording"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M2 2L10 10M10 2L2 10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
       <div
         className={`input-wrapper ${isDragging ? "dragging" : ""}`}
         onDragOver={handleDragOver}
@@ -174,8 +265,44 @@ function MessageInput({ onSend, disabled }) {
               strokeLinejoin="round"
               fill="none"
             />
-            <circle cx="10" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <circle
+              cx="10"
+              cy="4"
+              r="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              fill="none"
+            />
           </svg>
+        </button>
+        <button
+          type="button"
+          className={`voice-input-button ${isRecording ? "recording" : ""}`}
+          onClick={handleVoiceInputClick}
+          disabled={disabled}
+          aria-label={isRecording ? "Stop recording" : "Start recording"}
+        >
+          {isRecording ? (
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <rect x="4" y="4" width="12" height="12" rx="2" />
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M10 2v4M6 4v3M14 4v3M4 7v4C4 12.5 6.5 15 10 15s6-2.5 6-7V7"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                fill="none"
+              />
+              <path
+                d="M7 16v2M13 16v2"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
         </button>
         <textarea
           ref={textareaRef}

@@ -5,7 +5,7 @@ import MessageInput from "./components/MessageInput";
 import SearchOverlay from "./components/SearchOverlay";
 import SettingsModal from "./components/SettingsModal";
 import PersonaEditor from "./components/PersonaEditor";
-import { minimax, ollama } from "./services/api";
+import { minimax, ollama, omnivoice } from "./services/api";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -27,6 +27,14 @@ function loadConfig() {
     minimaxModel: "M2-her",
     ollamaBaseUrl: "http://localhost:11434",
     ollamaModel: "llama3.2",
+    voiceEnabled: false,
+    voiceMode: "auto",
+    voiceConfig: {},
+    voiceGenerationConfig: {
+      language: null,
+      speed: 1.0,
+      numStep: 32,
+    },
   };
 }
 
@@ -277,6 +285,7 @@ function App() {
 
       try {
         let stream;
+        let voiceEnabled = config.voiceEnabled;
 
         if (config.provider === "minimax") {
           if (!config.minimaxApiKey) {
@@ -290,6 +299,7 @@ function App() {
             config.minimaxModel,
           );
         } else {
+          // Ollama (default)
           stream = ollama.streamOllamaResponse(
             chatHistory,
             config.ollamaBaseUrl,
@@ -337,6 +347,71 @@ function App() {
           };
           return { ...prev, branches: newBranches };
         });
+
+        // If voice is enabled, generate TTS audio for the response
+        if (voiceEnabled && assistantContent.trim()) {
+          setBranches((prev) => {
+            const newBranches = [...prev.branches];
+            const idx = newBranches.findIndex(
+              (b) => b.id === branches.currentBranchId,
+            );
+            newBranches[idx] = {
+              ...newBranches[idx],
+              messages: newBranches[idx].messages.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, isLoading: true }
+                  : msg,
+              ),
+            };
+            return { ...prev, branches: newBranches };
+          });
+
+          try {
+            const ttsOptions = {
+              voice: config.voiceMode || "auto",
+              voiceConfig: config.voiceConfig || {},
+              generationConfig: config.voiceGenerationConfig || {},
+            };
+            const { audioBlob, audioUrl } = await omnivoice.textToSpeech(
+              assistantContent,
+              ttsOptions,
+            );
+
+            setBranches((prev) => {
+              const newBranches = [...prev.branches];
+              const idx = newBranches.findIndex(
+                (b) => b.id === branches.currentBranchId,
+              );
+              newBranches[idx] = {
+                ...newBranches[idx],
+                messages: newBranches[idx].messages.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, audioBlob, audioUrl, isLoading: false }
+                    : msg,
+                ),
+              };
+              return { ...prev, branches: newBranches };
+            });
+          } catch (ttsErr) {
+            // If TTS fails, just show text without audio
+            console.error("TTS generation failed:", ttsErr);
+            setBranches((prev) => {
+              const newBranches = [...prev.branches];
+              const idx = newBranches.findIndex(
+                (b) => b.id === branches.currentBranchId,
+              );
+              newBranches[idx] = {
+                ...newBranches[idx],
+                messages: newBranches[idx].messages.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, isLoading: false }
+                    : msg,
+                ),
+              };
+              return { ...prev, branches: newBranches };
+            });
+          }
+        }
       } catch (err) {
         setError(err.message);
         setBranches((prev) => {

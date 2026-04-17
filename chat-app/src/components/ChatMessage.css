@@ -389,3 +389,92 @@
 .message-streaming .message-content {
   contain: content;
 }
+
+/* Audio Player Styles */
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  min-width: 200px;
+}
+
+.audio-play-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+
+.audio-play-btn:hover {
+  transform: scale(1.05);
+  background: var(--accent-hover);
+}
+
+.audio-play-btn svg {
+  margin-left: 2px;
+}
+
+.audio-progress-container {
+  flex: 1;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.audio-progress-bar {
+  height: 4px;
+  background: var(--text-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+  opacity: 0.5;
+  transition: opacity 150ms ease;
+}
+
+.audio-progress-container:hover .audio-progress-bar {
+  opacity: 0.8;
+}
+
+.audio-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 100ms linear;
+}
+
+.audio-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* User messages audio alignment */
+.message-user .audio-player {
+  flex-direction: row-reverse;
+}
+
+/* Voice message indicator */
+.voice-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.voice-indicator svg {
+  width: 14px;
+  height: 14px;
+}

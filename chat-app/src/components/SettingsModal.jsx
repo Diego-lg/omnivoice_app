@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { ollama, MINIMAX_MODELS } from "../services/api";
+import VoiceSettings from "./VoiceSettings";
 import "./SettingsModal.css";
 
 function SettingsModal({ config, onUpdate, onClose }) {
@@ -91,6 +92,8 @@ function SettingsModal({ config, onUpdate, onClose }) {
                 <p className="form-hint">Select the MiniMax model to use</p>
               </div>
             </div>
+          ) : localConfig.provider === "omnivoice" ? (
+            <VoiceSettings config={localConfig} onUpdate={onUpdate} />
           ) : (
             <div className="settings-section">
               <h3 className="section-title">Ollama Configuration</h3>

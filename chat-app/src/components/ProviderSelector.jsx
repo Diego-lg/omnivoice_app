@@ -13,7 +13,9 @@ function ProviderSelector({ value, onChange }) {
       </select>
       <div className="status-indicator">
         <span
-          className={`status-dot ${value === "minimax" ? "status-api" : "status-local"}`}
+          className={`status-dot ${
+            value === "minimax" ? "status-api" : "status-local"
+          }`}
         />
       </div>
     </div>
