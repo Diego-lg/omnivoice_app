@@ -88,7 +88,6 @@ export async function* streamMinimaxResponse(
   // Parse SSE stream
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
-  let previousLength = 0; // Track length of previously yielded content
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -127,21 +126,12 @@ export async function* streamMinimaxResponse(
             content = choice.message.content;
           }
 
-          if (content && content.trim()) {
-            // Only yield NEW delta based on length difference
-            // MiniMax sends accumulated content, so only new chars should be yielded
-            if (content.length > previousLength) {
-              const delta = content.slice(previousLength);
-              if (delta) {
-                console.log(
-                  "[MiniMax] Yielding delta:",
-                  delta.substring(0, 50) + (delta.length > 50 ? "..." : ""),
-                );
-                yield delta;
-                // Track by actual yielded delta length, not content.length
-                previousLength += delta.length;
-              }
-            }
+          if (content) {
+            console.log(
+              "[MiniMax] Yielding content:",
+              content.substring(0, 50) + (content.length > 50 ? "..." : ""),
+            );
+            yield content;
           }
         }
       }

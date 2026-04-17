@@ -29,7 +29,6 @@ export async function* streamOllamaResponse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let previousLength = 0; // Track length of previously yielded content
 
   try {
     while (true) {
@@ -46,15 +45,8 @@ export async function* streamOllamaResponse(
         try {
           const parsed = JSON.parse(line);
           const content = parsed.message?.content;
-          if (content && content.trim()) {
-            // Only yield the NEW portion that's longer than what we last saw
-            if (content.length > previousLength) {
-              const delta = content.slice(previousLength);
-              if (delta.trim()) {
-                yield delta;
-              }
-              previousLength = content.length;
-            }
+          if (content) {
+            yield content;
           }
           if (parsed.done) {
             return;
