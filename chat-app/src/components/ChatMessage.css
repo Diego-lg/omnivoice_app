@@ -648,6 +648,42 @@
   overflow-y: auto;
 }
 
+/* Text Format Options - Font Size */
+.format-font-small .message-content {
+  font-size: 12px;
+}
+
+.format-font-medium .message-content {
+  font-size: 14px;
+}
+
+.format-font-large .message-content {
+  font-size: 16px;
+}
+
+.format-font-extra-large .message-content {
+  font-size: 18px;
+}
+
+/* Text Format Options - Font Family */
+.format-font-serif .message-content {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.format-font-sans-serif .message-content {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.format-font-monospace .message-content {
+  font-family: "Fira Code", "Consolas", "Monaco", monospace;
+}
+
+/* Plain text mode (markdown disabled) */
+.format-plain .message-content {
+  font-family: inherit;
+}
+
 /* User messages audio alignment */
 .message-user .audio-player {
   flex-direction: column;

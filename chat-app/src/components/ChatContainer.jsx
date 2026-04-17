@@ -2,7 +2,14 @@ import { useRef, useEffect } from "react";
 import ChatMessage from "./ChatMessage";
 import "./ChatContainer.css";
 
-function ChatContainer({ messages, chatEndRef, error, scrollToIndex, onBranchClick }) {
+function ChatContainer({
+  messages,
+  chatEndRef,
+  error,
+  scrollToIndex,
+  onBranchClick,
+  textFormatConfig,
+}) {
   const hasMessages = messages.length > 0;
   const messageRefs = useRef([]);
 
@@ -47,6 +54,7 @@ function ChatContainer({ messages, chatEndRef, error, scrollToIndex, onBranchCli
             ref={(el) => (messageRefs.current[index] = el)}
             message={msg}
             onBranchClick={onBranchClick}
+            textFormatConfig={textFormatConfig}
           />
         ))}
         <div ref={chatEndRef} />

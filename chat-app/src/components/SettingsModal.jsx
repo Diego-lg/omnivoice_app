@@ -6,6 +6,7 @@ import "./SettingsModal.css";
 const TABS = {
   PROVIDER: "provider",
   VOICE: "voice",
+  FORMATTING: "formatting",
 };
 
 function SettingsModal({ config, onUpdate, onClose }) {
@@ -130,6 +131,22 @@ function SettingsModal({ config, onUpdate, onClose }) {
             </svg>
             Voice
           </button>
+          <button
+            className={`settings-tab ${activeTab === TABS.FORMATTING ? "active" : ""}`}
+            onClick={() => setActiveTab(TABS.FORMATTING)}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M2 4h12M4 8h8M6 12h4" strokeLinecap="round" />
+            </svg>
+            Formatting
+          </button>
         </div>
 
         <div className="modal-body">
@@ -249,6 +266,102 @@ function SettingsModal({ config, onUpdate, onClose }) {
               config={localConfig}
               onUpdate={handleVoiceSettingsUpdate}
             />
+          )}
+
+          {activeTab === TABS.FORMATTING && (
+            <div className="settings-section">
+              <h3 className="section-title">Text Formatting</h3>
+              <div className="form-group">
+                <label className="form-label">Font Size</label>
+                <select
+                  className="form-select"
+                  value={localConfig.textFormatConfig?.fontSize || "medium"}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      textFormatConfig: {
+                        ...localConfig.textFormatConfig,
+                        fontSize: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
+                  <option value="extra-large">Extra Large</option>
+                </select>
+                <p className="form-hint">
+                  Adjust the text size for chat messages
+                </p>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Font Family</label>
+                <select
+                  className="form-select"
+                  value={localConfig.textFormatConfig?.fontFamily || "system"}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      textFormatConfig: {
+                        ...localConfig.textFormatConfig,
+                        fontFamily: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="system">System Default</option>
+                  <option value="serif">Serif</option>
+                  <option value="sans-serif">Sans-serif</option>
+                  <option value="monospace">Monospace</option>
+                </select>
+                <p className="form-hint">
+                  Choose the font family for code blocks
+                </p>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Code Theme</label>
+                <select
+                  className="form-select"
+                  value={localConfig.textFormatConfig?.codeStyle || "dark"}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      textFormatConfig: {
+                        ...localConfig.textFormatConfig,
+                        codeStyle: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                  <option value="dracula">Dracula</option>
+                  <option value="nord">Nord</option>
+                </select>
+                <p className="form-hint">
+                  Choose the syntax highlighting theme for code
+                </p>
+              </div>
+              <div className="form-group">
+                <label className="form-label toggle-label">
+                  <span>Markdown Rendering</span>
+                  <input
+                    type="checkbox"
+                    className="form-checkbox"
+                    checked={localConfig.textFormatConfig?.markdown !== false}
+                    onChange={(e) =>
+                      handleVoiceSettingsUpdate({
+                        textFormatConfig: {
+                          ...localConfig.textFormatConfig,
+                          markdown: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <p className="form-hint">
+                  Enable or disable markdown formatting in messages
+                </p>
+              </div>
+            </div>
           )}
         </div>
 

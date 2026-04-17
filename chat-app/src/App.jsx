@@ -46,6 +46,12 @@ function loadConfig() {
       defaultVolume: 1.0,
       defaultSpeed: 1.0,
     },
+    textFormatConfig: {
+      fontSize: "medium",
+      fontFamily: "system",
+      codeStyle: "dark",
+      markdown: true,
+    },
   };
 }
 
@@ -622,6 +628,7 @@ function App() {
           chatEndRef={chatEndRef}
           error={error}
           scrollToIndex={scrollToIndex}
+          textFormatConfig={config.textFormatConfig}
         />
         <MessageInput
           onSend={sendMessage}

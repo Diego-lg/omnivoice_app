@@ -9,7 +9,7 @@ import TypingIndicator from "./TypingIndicator";
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 const ChatMessage = React.forwardRef(function ChatMessage(
-  { message, onBranchClick },
+  { message, onBranchClick, textFormatConfig },
   ref,
 ) {
   const isUser = message.role === "user";
@@ -19,6 +19,28 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   const hasAudio = message.audioUrl || message.audioBlob;
   const transcript = message.transcript || null;
   const autoPlay = message.autoPlay || false;
+
+  // Get formatting options with defaults
+  const fontSize = textFormatConfig?.fontSize || "medium";
+  const fontFamily = textFormatConfig?.fontFamily || "system";
+  const codeStyle = textFormatConfig?.codeStyle || "dark";
+  const enableMarkdown = textFormatConfig?.markdown !== false;
+
+  // Build dynamic class names for formatting
+  const formatClasses = [
+    `format-font-${fontSize}`,
+    `format-font-${fontFamily}`,
+    enableMarkdown ? "format-markdown" : "format-plain",
+  ].join(" ");
+
+  // Map code style to syntax highlighter theme
+  const codeThemeMap = {
+    dark: oneDark,
+    light: "prism-light",
+    dracula: "prism-dracula",
+    nord: "prism-nord",
+  };
+  const codeTheme = codeThemeMap[codeStyle] || oneDark;
 
   // Audio player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -137,7 +159,7 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   return (
     <div
       ref={ref}
-      className={`message ${isUser ? "message-user" : "message-assistant"} ${isError ? "message-error" : ""} ${isStreaming ? "message-streaming" : ""}`}
+      className={`message ${isUser ? "message-user" : "message-assistant"} ${isError ? "message-error" : ""} ${isStreaming ? "message-streaming" : ""} ${formatClasses}`}
     >
       <div className="message-bubble">
         {message.isLoading && !message.content ? (
@@ -159,36 +181,43 @@ const ChatMessage = React.forwardRef(function ChatMessage(
               </div>
             )}
             <div className="message-content">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code({ node, inline, className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || "");
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={oneDark}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          margin: "16px 0",
-                          borderRadius: "8px",
-                          backgroundColor: "#1A1A1A",
-                          fontSize: "13px",
-                        }}
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, "")}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    );
-                  },
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+              {enableMarkdown ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className || "");
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={codeTheme}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{
+                            margin: "16px 0",
+                            borderRadius: "8px",
+                            backgroundColor:
+                              codeStyle === "light" ? "#f5f5f5" : "#1A1A1A",
+                            fontSize: "13px",
+                          }}
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, "")}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              ) : (
+                <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                  {message.content}
+                </pre>
+              )}
               {isStreaming && (
                 <span className="streaming-indicator">
                   <span className="streaming-dot"></span>
