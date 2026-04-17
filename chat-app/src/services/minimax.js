@@ -132,14 +132,15 @@ export async function* streamMinimaxResponse(
             // MiniMax sends accumulated content, so only new chars should be yielded
             if (content.length > previousLength) {
               const delta = content.slice(previousLength);
-              if (delta.trim()) {
+              if (delta) {
                 console.log(
                   "[MiniMax] Yielding delta:",
-                  delta.substring(0, 50) + "...",
+                  delta.substring(0, 50) + (delta.length > 50 ? "..." : ""),
                 );
                 yield delta;
+                // Track by actual yielded delta length, not content.length
+                previousLength += delta.length;
               }
-              previousLength = content.length;
             }
           }
         }

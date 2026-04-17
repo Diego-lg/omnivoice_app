@@ -16,43 +16,50 @@ const CURRENT_SESSION_KEY = "omnivoice_chat_current_session";
 const PERSONAS_STORAGE_KEY = "omnivoice_chat_personas";
 const SELECTED_PERSONA_KEY = "omnivoice_chat_selected_persona";
 
+const DEFAULT_CONFIG = {
+  provider: "ollama",
+  minimaxApiKey: import.meta.env.VITE_MINIMAX_API_KEY || "",
+  minimaxModel: "M2-her",
+  ollamaBaseUrl: "http://localhost:11434",
+  ollamaModel: "llama3.2",
+  voiceEnabled: false,
+  voiceMode: "auto",
+  voiceConfig: {},
+  voiceGenerationConfig: {
+    language: null,
+    speed: 1.0,
+    numStep: 32,
+  },
+  sttConfig: {
+    language: "en-US",
+    continuous: false,
+  },
+  playbackConfig: {
+    autoPlay: false,
+    defaultVolume: 1.0,
+    defaultSpeed: 1.0,
+  },
+  textFormatConfig: {
+    fontSize: "medium",
+    fontFamily: "system",
+    codeStyle: "dark",
+    markdown: true,
+  },
+};
+
 function loadConfig() {
   try {
     const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      // If saved config has empty minimaxApiKey but env has one, use env value
+      if (!parsed.minimaxApiKey && import.meta.env.VITE_MINIMAX_API_KEY) {
+        parsed.minimaxApiKey = import.meta.env.VITE_MINIMAX_API_KEY;
+      }
+      return parsed;
     }
   } catch {}
-  return {
-    provider: "ollama",
-    minimaxApiKey: import.meta.env.VITE_MINIMAX_API_KEY || "",
-    minimaxModel: "M2-her",
-    ollamaBaseUrl: "http://localhost:11434",
-    ollamaModel: "llama3.2",
-    voiceEnabled: false,
-    voiceMode: "auto",
-    voiceConfig: {},
-    voiceGenerationConfig: {
-      language: null,
-      speed: 1.0,
-      numStep: 32,
-    },
-    sttConfig: {
-      language: "en-US",
-      continuous: false,
-    },
-    playbackConfig: {
-      autoPlay: false,
-      defaultVolume: 1.0,
-      defaultSpeed: 1.0,
-    },
-    textFormatConfig: {
-      fontSize: "medium",
-      fontFamily: "system",
-      codeStyle: "dark",
-      markdown: true,
-    },
-  };
+  return { ...DEFAULT_CONFIG };
 }
 
 function saveConfig(config) {
