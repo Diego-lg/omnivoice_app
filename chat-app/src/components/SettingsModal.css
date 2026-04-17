@@ -35,6 +35,10 @@
   animation: slideIn 200ms ease;
 }
 
+.settings-modal {
+  max-width: 560px;
+}
+
 @keyframes slideIn {
   from {
     opacity: 0;
@@ -78,9 +82,48 @@
   color: var(--text-primary);
 }
 
+/* Settings Tabs */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 24px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.settings-tab:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.settings-tab.active {
+  background: var(--bg-secondary);
+  color: var(--accent);
+}
+
+.settings-tab svg {
+  flex-shrink: 0;
+}
+
 .modal-body {
   padding: 24px;
   overflow-y: auto;
+  flex: 1;
 }
 
 .settings-section {
@@ -153,6 +196,17 @@
   background: var(--bg-tertiary);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+.form-hint.voice-provider-hint {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.form-hint.voice-provider-hint strong {
+  color: var(--accent);
 }
 
 .model-loading {

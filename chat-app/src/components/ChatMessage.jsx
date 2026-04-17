@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import "./ChatMessage.css";
 import TypingIndicator from "./TypingIndicator";
+
+const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 const ChatMessage = React.forwardRef(function ChatMessage(
   { message, onBranchClick },
@@ -15,12 +17,19 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   const isStreaming = message.isStreaming;
   const images = message.images || [];
   const hasAudio = message.audioUrl || message.audioBlob;
+  const transcript = message.transcript || null;
+  const autoPlay = message.autoPlay || false;
 
   // Audio player state
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
+  const [volume, setVolume] = useState(1.0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const audioRef = useRef(null);
+  const volumeRef = useRef(null);
 
   const formatTime = (date) => {
     if (!date) return "";
@@ -41,37 +50,79 @@ const ChatMessage = React.forwardRef(function ChatMessage(
     return null;
   };
 
-  const togglePlayPause = () => {
+  const togglePlayPause = useCallback(() => {
     if (!audioRef.current) return;
     if (isPlaying) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play();
+      audioRef.current
+        .play()
+        .catch((err) => console.warn("Audio play failed:", err));
     }
     setIsPlaying(!isPlaying);
-  };
+  }, [isPlaying]);
 
-  const handleAudioTimeUpdate = () => {
+  const handleAudioTimeUpdate = useCallback(() => {
     if (!audioRef.current) return;
     setAudioProgress(audioRef.current.currentTime);
-  };
+  }, []);
 
-  const handleAudioLoadedMetadata = () => {
+  const handleAudioLoadedMetadata = useCallback(() => {
     if (!audioRef.current) return;
     setAudioDuration(audioRef.current.duration);
-  };
+    if (volumeRef.current) {
+      audioRef.current.volume = volume;
+    }
+    // Auto-play if enabled
+    if (autoPlay && !isPlaying) {
+      audioRef.current
+        .play()
+        .catch((err) => console.warn("Auto-play failed:", err));
+      setIsPlaying(true);
+    }
+  }, [autoPlay, volume, isPlaying]);
 
-  const handleAudioEnded = () => {
+  const handleAudioEnded = useCallback(() => {
     setIsPlaying(false);
     setAudioProgress(0);
-  };
+  }, []);
 
   const handleProgressBarClick = (e) => {
     if (!audioRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const percent = (e.clientX - rect.left) / rect.width;
+    const percent = Math.max(
+      0,
+      Math.min(1, (e.clientX - rect.left) / rect.width),
+    );
     audioRef.current.currentTime = percent * audioDuration;
     setAudioProgress(audioRef.current.currentTime);
+  };
+
+  const handleVolumeChange = (e) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
+  };
+
+  const handleSpeedChange = (speed) => {
+    setPlaybackSpeed(speed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+    setShowSpeedMenu(false);
+  };
+
+  const downloadAudio = () => {
+    const url = getAudioUrl();
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `voice-response-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Cleanup blob URL on unmount
@@ -180,23 +231,145 @@ const ChatMessage = React.forwardRef(function ChatMessage(
                     </svg>
                   )}
                 </button>
-                <div
-                  className="audio-progress-container"
-                  onClick={handleProgressBarClick}
-                >
-                  <div className="audio-progress-bar">
-                    <div
-                      className="audio-progress-fill"
-                      style={{
-                        width: `${(audioProgress / audioDuration) * 100}%`,
-                      }}
-                    />
+                <div className="audio-progress-wrapper">
+                  <div
+                    className="audio-progress-container"
+                    onClick={handleProgressBarClick}
+                  >
+                    <div className="audio-progress-bar">
+                      <div
+                        className="audio-progress-fill"
+                        style={{
+                          width: `${(audioProgress / audioDuration) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="audio-time-display">
+                    <span>{formatAudioTime(audioProgress)}</span>
+                    <span className="audio-time-separator">/</span>
+                    <span>{formatAudioTime(audioDuration)}</span>
                   </div>
                 </div>
-                <span className="audio-time">
-                  {formatAudioTime(audioProgress)} /{" "}
-                  {formatAudioTime(audioDuration)}
-                </span>
+                <div className="audio-controls-right">
+                  <div className="volume-control">
+                    <button
+                      className="volume-btn"
+                      onClick={() => setVolume(volume > 0 ? 0 : 1)}
+                      aria-label={volume > 0 ? "Mute" : "Unmute"}
+                    >
+                      {volume === 0 ? (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path
+                            d="M2 5h2l3-3v10l-3-3H2M9 4l3 3M12 4l-3 3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path
+                            d="M2 5h2l3-3v10l-3-3H2M5 4.5a4 4 0 010 5M7.5 2.5a6 6 0 010 9"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                    <input
+                      ref={volumeRef}
+                      type="range"
+                      className="volume-slider"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={volume}
+                      onChange={handleVolumeChange}
+                      aria-label="Volume"
+                    />
+                  </div>
+                  <div className="speed-control">
+                    <button
+                      className="speed-btn"
+                      onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                      aria-label="Playback speed"
+                    >
+                      {playbackSpeed}x
+                    </button>
+                    {showSpeedMenu && (
+                      <div className="speed-menu">
+                        {PLAYBACK_SPEEDS.map((speed) => (
+                          <button
+                            key={speed}
+                            className={`speed-menu-item ${playbackSpeed === speed ? "active" : ""}`}
+                            onClick={() => handleSpeedChange(speed)}
+                          >
+                            {speed}x
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="download-btn"
+                    onClick={downloadAudio}
+                    aria-label="Download audio"
+                    title="Download audio"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        d="M7 1v8M4 6l3 3 3-3M2 11h10"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                {transcript && (
+                  <button
+                    className="transcript-toggle"
+                    onClick={() => setShowTranscript(!showTranscript)}
+                    aria-label={
+                      showTranscript ? "Hide transcript" : "Show transcript"
+                    }
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path d="M1 2h10M1 6h10M1 10h6" strokeLinecap="round" />
+                    </svg>
+                    {showTranscript ? "Hide" : "Show"} transcript
+                  </button>
+                )}
+                {showTranscript && transcript && (
+                  <div className="audio-transcript">{transcript}</div>
+                )}
               </div>
             )}
             <div className="message-footer">

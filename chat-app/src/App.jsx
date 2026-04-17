@@ -35,6 +35,15 @@ function loadConfig() {
       speed: 1.0,
       numStep: 32,
     },
+    sttConfig: {
+      language: "en-US",
+      continuous: false,
+    },
+    playbackConfig: {
+      autoPlay: false,
+      defaultVolume: 1.0,
+      defaultSpeed: 1.0,
+    },
   };
 }
 
@@ -216,8 +225,9 @@ function App() {
   }, []);
 
   const sendMessage = useCallback(
-    async (content, images = []) => {
-      if ((!content.trim() && images.length === 0) || isLoading) return;
+    async (content, images = [], voiceBlob = null) => {
+      if ((!content.trim() && images.length === 0 && !voiceBlob) || isLoading)
+        return;
 
       const userMessage = {
         id: Date.now(),
@@ -225,6 +235,7 @@ function App() {
         content: content.trim(),
         images: images,
         timestamp: new Date(),
+        audioBlob: voiceBlob || null,
       };
 
       const currentBranchIndex = branches.branches.findIndex(
@@ -371,11 +382,58 @@ function App() {
               voice: config.voiceMode || "auto",
               voiceConfig: config.voiceConfig || {},
               generationConfig: config.voiceGenerationConfig || {},
+              voiceProfileId: config.voiceConfig?.selectedProfileId || null,
             };
-            const { audioBlob, audioUrl } = await omnivoice.textToSpeech(
-              assistantContent,
-              ttsOptions,
-            );
+
+            let audioResult;
+
+            // If voiceBlob is provided, use speech-to-speech (voice cloning)
+            if (voiceBlob) {
+              try {
+                audioResult = await omnivoice.speechToSpeech(
+                  voiceBlob,
+                  assistantContent,
+                  ttsOptions,
+                );
+                // Add transcript for display
+                setBranches((prev) => {
+                  const newBranches = [...prev.branches];
+                  const idx = newBranches.findIndex(
+                    (b) => b.id === branches.currentBranchId,
+                  );
+                  newBranches[idx] = {
+                    ...newBranches[idx],
+                    messages: newBranches[idx].messages.map((msg) =>
+                      msg.id === assistantMessageId
+                        ? {
+                            ...msg,
+                            transcript: audioResult.transcript,
+                            autoPlay: config.playbackConfig?.autoPlay || false,
+                          }
+                        : msg,
+                    ),
+                  };
+                  return { ...prev, branches: newBranches };
+                });
+              } catch (stsErr) {
+                console.warn(
+                  "Speech-to-speech failed, falling back to TTS:",
+                  stsErr,
+                );
+                // Fall back to regular TTS
+                audioResult = await omnivoice.textToSpeech(
+                  assistantContent,
+                  ttsOptions,
+                );
+              }
+            } else {
+              audioResult = await omnivoice.textToSpeech(
+                assistantContent,
+                ttsOptions,
+              );
+            }
+
+            const { audioBlob, audioUrl } = audioResult;
 
             setBranches((prev) => {
               const newBranches = [...prev.branches];
@@ -386,7 +444,13 @@ function App() {
                 ...newBranches[idx],
                 messages: newBranches[idx].messages.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, audioBlob, audioUrl, isLoading: false }
+                    ? {
+                        ...msg,
+                        audioBlob,
+                        audioUrl,
+                        isLoading: false,
+                        autoPlay: config.playbackConfig?.autoPlay || false,
+                      }
                     : msg,
                 ),
               };
@@ -496,7 +560,11 @@ function App() {
           scrollToIndex={scrollToIndex}
           onBranchClick={createBranch}
         />
-        <MessageInput onSend={sendMessage} disabled={isLoading} />
+        <MessageInput
+          onSend={sendMessage}
+          disabled={isLoading}
+          sttConfig={config.sttConfig}
+        />
       </div>
       {showSettings && (
         <SettingsModal

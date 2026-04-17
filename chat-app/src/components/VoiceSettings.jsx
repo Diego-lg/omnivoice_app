@@ -18,10 +18,30 @@ const LANGUAGES = [
   { id: "hi", name: "Hindi" },
 ];
 
+const STT_LANGUAGES = [
+  { id: "en-US", name: "English (US)" },
+  { id: "en-GB", name: "English (UK)" },
+  { id: "zh-CN", name: "Chinese (Simplified)" },
+  { id: "zh-TW", name: "Chinese (Traditional)" },
+  { id: "ja-JP", name: "Japanese" },
+  { id: "ko-KR", name: "Korean" },
+  { id: "es-ES", name: "Spanish" },
+  { id: "es-MX", name: "Spanish (Mexico)" },
+  { id: "fr-FR", name: "French" },
+  { id: "de-DE", name: "German" },
+  { id: "it-IT", name: "Italian" },
+  { id: "pt-BR", name: "Portuguese (Brazil)" },
+  { id: "ru-RU", name: "Russian" },
+  { id: "ar-SA", name: "Arabic" },
+  { id: "hi-IN", name: "Hindi" },
+];
+
 function VoiceSettings({ config, onUpdate }) {
   const [voiceProfiles, setVoiceProfiles] = useState([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [refAudioFile, setRefAudioFile] = useState(null);
+  const [serverStatus, setServerStatus] = useState(null);
+  const [checkingServer, setCheckingServer] = useState(false);
   const fileInputRef = useRef(null);
 
   const voiceEnabled = config.voiceEnabled || false;
@@ -31,9 +51,19 @@ function VoiceSettings({ config, onUpdate }) {
     speed: 1.0,
     numStep: 32,
   };
+  const sttConfig = config.sttConfig || {
+    language: "en-US",
+    continuous: false,
+  };
+  const playbackConfig = config.playbackConfig || {
+    autoPlay: false,
+    defaultVolume: 1.0,
+    defaultSpeed: 1.0,
+  };
 
   useEffect(() => {
     loadVoiceProfiles();
+    checkServerHealth();
   }, []);
 
   const handleVoiceEnabledChange = (enabled) => {
@@ -52,6 +82,18 @@ function VoiceSettings({ config, onUpdate }) {
     }
   };
 
+  const checkServerHealth = async () => {
+    setCheckingServer(true);
+    try {
+      const status = await omnivoice.checkHealth();
+      setServerStatus(status);
+    } catch (err) {
+      setServerStatus({ error: err.message });
+    } finally {
+      setCheckingServer(false);
+    }
+  };
+
   const handleVoiceModeChange = (mode) => {
     onUpdate({ voiceMode: mode });
   };
@@ -60,6 +102,24 @@ function VoiceSettings({ config, onUpdate }) {
     onUpdate({
       voiceGenerationConfig: {
         ...generationConfig,
+        [field]: value,
+      },
+    });
+  };
+
+  const handleSttConfigChange = (field, value) => {
+    onUpdate({
+      sttConfig: {
+        ...sttConfig,
+        [field]: value,
+      },
+    });
+  };
+
+  const handlePlaybackConfigChange = (field, value) => {
+    onUpdate({
+      playbackConfig: {
+        ...playbackConfig,
         [field]: value,
       },
     });
@@ -101,10 +161,27 @@ function VoiceSettings({ config, onUpdate }) {
     });
   };
 
+  const handleVoiceProfileSelect = (profileId) => {
+    onUpdate({
+      voiceConfig: {
+        ...config.voiceConfig,
+        selectedProfileId: profileId,
+      },
+    });
+  };
+
   const handleDeleteProfile = async (id) => {
     try {
       await omnivoice.deleteVoiceProfile(id);
       setVoiceProfiles((prev) => prev.filter((p) => p.id !== id));
+      if (config.voiceConfig?.selectedProfileId === id) {
+        onUpdate({
+          voiceConfig: {
+            ...config.voiceConfig,
+            selectedProfileId: null,
+          },
+        });
+      }
     } catch (err) {
       console.error("Failed to delete profile:", err);
     }
@@ -135,9 +212,10 @@ function VoiceSettings({ config, onUpdate }) {
 
   return (
     <div className="voice-settings">
+      {/* Server Status */}
       <div className="settings-section">
         <div className="voice-enable-row">
-          <h3 className="section-title">Enable Voice (TTS)</h3>
+          <h3 className="section-title">Enable Voice (TTS/STT)</h3>
           <label className="toggle-switch">
             <input
               type="checkbox"
@@ -148,14 +226,242 @@ function VoiceSettings({ config, onUpdate }) {
           </label>
         </div>
         <p className="form-hint">
-          When enabled, AI responses will be converted to speech using OmniVoice
+          Enable text-to-speech (TTS) for AI responses and speech-to-text (STT)
+          for voice input
         </p>
+      </div>
+
+      {/* Server Status Indicator */}
+      <div className="server-status-section">
+        <div className="server-status-row">
+          <span className="server-status-label">OmniVoice Server:</span>
+          {checkingServer ? (
+            <span className="server-status checking">Checking...</span>
+          ) : serverStatus?.error ? (
+            <span className="server-status offline">Offline</span>
+          ) : serverStatus ? (
+            <span className="server-status online">Online</span>
+          ) : (
+            <span className="server-status unknown">Unknown</span>
+          )}
+          <button
+            type="button"
+            className="btn-refresh-status"
+            onClick={checkServerHealth}
+            disabled={checkingServer}
+            aria-label="Refresh server status"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path
+                d="M2 7a5 5 0 019-2M12 7a5 5 0 01-9 2M2 3v4h4M12 11v-4H8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+        {serverStatus?.error && (
+          <p className="server-error-hint">
+            {serverStatus.error}. Make sure OmniVoice server is running.
+          </p>
+        )}
+        {serverStatus && !serverStatus.error && (
+          <div className="server-info">
+            {serverStatus.model_loaded !== undefined && (
+              <span
+                className={`model-status ${serverStatus.model_loaded ? "loaded" : "not-loaded"}`}
+              >
+                Model: {serverStatus.model_loaded ? "Loaded" : "Loading..."}
+              </span>
+            )}
+            {serverStatus.device && (
+              <span className="server-device">{serverStatus.device}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {voiceEnabled && (
         <div className="voice-settings-content">
+          {/* Playback Settings */}
           <div className="settings-section">
-            <h3 className="section-title">Voice Mode</h3>
+            <h3 className="section-title">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path
+                  d="M3 5h2l2-2v10l-2-2H3M9 3l4 5-4 5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Playback Settings
+            </h3>
+            <div className="form-group">
+              <label className="toggle-label">
+                <span>Auto-play TTS audio</span>
+                <label className="toggle-switch small">
+                  <input
+                    type="checkbox"
+                    checked={playbackConfig.autoPlay || false}
+                    onChange={(e) =>
+                      handlePlaybackConfigChange("autoPlay", e.target.checked)
+                    }
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </label>
+              <p className="form-hint">
+                Automatically play TTS audio when AI response is ready
+              </p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">
+                Default Volume:{" "}
+                {Math.round((playbackConfig.defaultVolume || 1.0) * 100)}%
+              </label>
+              <input
+                type="range"
+                className="form-slider"
+                min="0"
+                max="1"
+                step="0.05"
+                value={playbackConfig.defaultVolume || 1.0}
+                onChange={(e) =>
+                  handlePlaybackConfigChange(
+                    "defaultVolume",
+                    parseFloat(e.target.value),
+                  )
+                }
+              />
+              <div className="slider-labels">
+                <span>0%</span>
+                <span>100%</span>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">
+                Default Playback Speed:{" "}
+                {(playbackConfig.defaultSpeed || 1.0).toFixed(2)}x
+              </label>
+              <input
+                type="range"
+                className="form-slider"
+                min="0.5"
+                max="2.0"
+                step="0.25"
+                value={playbackConfig.defaultSpeed || 1.0}
+                onChange={(e) =>
+                  handlePlaybackConfigChange(
+                    "defaultSpeed",
+                    parseFloat(e.target.value),
+                  )
+                }
+              />
+              <div className="slider-labels">
+                <span>0.5x</span>
+                <span>2.0x</span>
+              </div>
+            </div>
+          </div>
+
+          {/* STT (Speech-to-Text) Settings */}
+          <div className="settings-section">
+            <h3 className="section-title">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path
+                  d="M8 1v6M5 4v3M11 4v3M4 7v4c0 2.5 2 4 4 4s4-1.5 4-4V7"
+                  strokeLinecap="round"
+                />
+                <path d="M6 14v1M10 14v1" strokeLinecap="round" />
+              </svg>
+              Speech Recognition (STT)
+            </h3>
+            <div className="form-group">
+              <label className="form-label">Recognition Language</label>
+              <select
+                className="form-select"
+                value={sttConfig.language || "en-US"}
+                onChange={(e) =>
+                  handleSttConfigChange("language", e.target.value)
+                }
+              >
+                {STT_LANGUAGES.map((lang) => (
+                  <option key={lang.id} value={lang.id}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select>
+              <p className="form-hint">
+                Select the language you will speak (auto-detect may not work
+                reliably)
+              </p>
+            </div>
+            <div className="form-group">
+              <label className="toggle-label">
+                <span>Continuous recognition</span>
+                <label className="toggle-switch small">
+                  <input
+                    type="checkbox"
+                    checked={sttConfig.continuous || false}
+                    onChange={(e) =>
+                      handleSttConfigChange("continuous", e.target.checked)
+                    }
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </label>
+              <p className="form-hint">
+                Keep listening after each phrase until stopped
+              </p>
+            </div>
+          </div>
+
+          {/* TTS Settings */}
+          <div className="settings-section">
+            <h3 className="section-title">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path
+                  d="M3 5v6c0 2 1.5 3 3 3s3-1 3-3V5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M12 6c1.5 1.5 2 3.5 2 5s-.5 3.5-2 5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M1 9c1.5 1.5 2 3.5 2 5s-.5 3.5-2 5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              Text-to-Speech (TTS)
+            </h3>
             <div className="voice-mode-selector">
               {Object.values(VOICE_MODES).map((mode) => (
                 <button
@@ -163,22 +469,136 @@ function VoiceSettings({ config, onUpdate }) {
                   className={`voice-mode-btn ${voiceMode === mode ? "active" : ""}`}
                   onClick={() => handleVoiceModeChange(mode)}
                 >
+                  {mode === "clone" && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        d="M2 3h4v6H2zM8 3h4v6H8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  {mode === "design" && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        d="M7 1l2 3h3l-2.5 2.5L11 9l-3-2-3 2 1.5-2.5L3 6h3l2-3z"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                  {mode === "auto" && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        d="M2 5h2l2-2v10l-2-2H2M9 3l3 4-3 4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
                   {mode.charAt(0).toUpperCase() + mode.slice(1)}
                 </button>
               ))}
             </div>
             <p className="form-hint">
               {voiceMode === "clone"
-                ? "Clone a voice from reference audio"
+                ? "Clone a voice from reference audio for realistic voice synthesis"
                 : voiceMode === "design"
-                  ? "Design a voice with text description"
-                  : "Automatically select the best voice"}
+                  ? "Design a voice with text description (gender, accent, tone, etc.)"
+                  : "Automatically select the best voice for the content"}
             </p>
           </div>
 
           {voiceMode === "clone" && (
             <div className="settings-section">
               <h3 className="section-title">Voice Clone Settings</h3>
+
+              {/* Voice Profile Selection */}
+              {voiceProfiles.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Saved Voice Profiles</label>
+                  <div className="voice-profile-grid">
+                    {voiceProfiles.map((profile) => (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        className={`voice-profile-card ${config.voiceConfig?.selectedProfileId === profile.id ? "selected" : ""}`}
+                        onClick={() => handleVoiceProfileSelect(profile.id)}
+                      >
+                        <div className="profile-card-icon">
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                          >
+                            <circle cx="10" cy="7" r="3" />
+                            <path
+                              d="M3 17c0-3 3-5 7-5s7 2 7 5"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </div>
+                        <div className="profile-card-info">
+                          <span className="profile-card-name">
+                            {profile.name}
+                          </span>
+                          <span className="profile-card-date">
+                            {new Date(profile.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="profile-delete-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProfile(profile.id);
+                          }}
+                          aria-label="Delete profile"
+                        >
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                          >
+                            <path
+                              d="M2 2L10 10M10 2L2 10"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
                 <label className="form-label">Reference Audio</label>
                 <input
@@ -196,7 +616,8 @@ function VoiceSettings({ config, onUpdate }) {
                   {refAudioFile ? refAudioFile.name : "Upload Audio"}
                 </button>
                 <p className="form-hint">
-                  Upload a clear audio sample (24kHz WAV recommended, 10-60 seconds)
+                  Upload a clear audio sample (24kHz WAV recommended, 10-60
+                  seconds)
                 </p>
               </div>
               <div className="form-group">
@@ -232,12 +653,70 @@ function VoiceSettings({ config, onUpdate }) {
                   className="form-textarea"
                   value={config.voiceConfig?.instruct || ""}
                   onChange={handleInstructChange}
-                  placeholder="e.g., Male voice, British accent, warm and professional..."
+                  placeholder="e.g., male, british accent, middle-aged"
                   rows={3}
                 />
                 <p className="form-hint">
-                  Describe the voice characteristics (gender, accent, tone, etc.)
+                  Use comma-separated tags: female/male, accent (american,
+                  british, indian...), age (young adult, middle-aged, elderly)
                 </p>
+              </div>
+              <div className="voice-presets">
+                <span className="presets-label">Quick presets:</span>
+                <div className="preset-buttons">
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() =>
+                      handleInstructChange({
+                        target: {
+                          value: "male, american accent, middle-aged",
+                        },
+                      })
+                    }
+                  >
+                    American Male
+                  </button>
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() =>
+                      handleInstructChange({
+                        target: {
+                          value: "female, british accent",
+                        },
+                      })
+                    }
+                  >
+                    British Female
+                  </button>
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() =>
+                      handleInstructChange({
+                        target: {
+                          value: "neutral, moderate pitch",
+                        },
+                      })
+                    }
+                  >
+                    Neutral
+                  </button>
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() =>
+                      handleInstructChange({
+                        target: {
+                          value: "young adult, american accent",
+                        },
+                      })
+                    }
+                  >
+                    Young American
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -245,12 +724,15 @@ function VoiceSettings({ config, onUpdate }) {
           <div className="settings-section">
             <h3 className="section-title">Generation Settings</h3>
             <div className="form-group">
-              <label className="form-label">Language</label>
+              <label className="form-label">Output Language</label>
               <select
                 className="form-select"
                 value={generationConfig.language || ""}
                 onChange={(e) =>
-                  handleGenerationConfigChange("language", e.target.value || null)
+                  handleGenerationConfigChange(
+                    "language",
+                    e.target.value || null,
+                  )
                 }
               >
                 {LANGUAGES.map((lang) => (
@@ -259,10 +741,13 @@ function VoiceSettings({ config, onUpdate }) {
                   </option>
                 ))}
               </select>
+              <p className="form-hint">
+                Language for TTS output (auto-detect if not set)
+              </p>
             </div>
             <div className="form-group">
               <label className="form-label">
-                Speed: {generationConfig.speed?.toFixed(2) || 1.0}
+                Speed: {generationConfig.speed?.toFixed(2) || 1.0}x
               </label>
               <input
                 type="range"
@@ -272,12 +757,15 @@ function VoiceSettings({ config, onUpdate }) {
                 step="0.1"
                 value={generationConfig.speed || 1.0}
                 onChange={(e) =>
-                  handleGenerationConfigChange("speed", parseFloat(e.target.value))
+                  handleGenerationConfigChange(
+                    "speed",
+                    parseFloat(e.target.value),
+                  )
                 }
               />
               <div className="slider-labels">
-                <span>0.5x</span>
-                <span>2.0x</span>
+                <span>0.5x (Slower)</span>
+                <span>2.0x (Faster)</span>
               </div>
             </div>
             <div className="form-group">
@@ -292,7 +780,10 @@ function VoiceSettings({ config, onUpdate }) {
                 step="1"
                 value={generationConfig.numStep || 32}
                 onChange={(e) =>
-                  handleGenerationConfigChange("numStep", parseInt(e.target.value))
+                  handleGenerationConfigChange(
+                    "numStep",
+                    parseInt(e.target.value),
+                  )
                 }
               />
               <div className="slider-labels">
@@ -300,53 +791,9 @@ function VoiceSettings({ config, onUpdate }) {
                 <span>32 (High Quality)</span>
               </div>
               <p className="form-hint">
-                Higher steps produce better quality but take longer
+                Higher steps produce better quality but take longer to generate
               </p>
             </div>
-          </div>
-
-          <div className="settings-section">
-            <h3 className="section-title">Saved Voice Profiles</h3>
-            {loadingProfiles ? (
-              <div className="loading-text">Loading profiles...</div>
-            ) : voiceProfiles.length === 0 ? (
-              <div className="empty-profiles">
-                <p>No saved voice profiles</p>
-                <p className="form-hint">
-                  Upload reference audio in clone mode and save it as a profile
-                </p>
-              </div>
-            ) : (
-              <div className="voice-profiles-list">
-                {voiceProfiles.map((profile) => (
-                  <div key={profile.id} className="voice-profile-item">
-                    <div className="profile-info">
-                      <span className="profile-name">{profile.name}</span>
-                      <span className="profile-date">
-                        {new Date(profile.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-delete-profile"
-                      onClick={() => handleDeleteProfile(profile.id)}
-                      aria-label="Delete profile"
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 14 14"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <path d="M2 2L12 12M12 2L2 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}

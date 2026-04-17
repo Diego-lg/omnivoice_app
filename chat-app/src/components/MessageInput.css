@@ -24,6 +24,12 @@
   border-style: dashed;
 }
 
+.input-wrapper.recording {
+  border-color: var(--error);
+  border-style: solid;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
+}
+
 .file-input {
   display: none;
 }
@@ -105,6 +111,34 @@
   margin-top: 8px;
 }
 
+.recording-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--error);
+}
+
+.recording-pulse {
+  width: 8px;
+  height: 8px;
+  background: var(--error);
+  border-radius: 50%;
+  animation: recordingPulse 1s ease-in-out infinite;
+}
+
+@keyframes recordingPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
 .input-counter {
   font-size: 11px;
   color: var(--text-tertiary);
@@ -133,9 +167,11 @@
 }
 
 .voice-input-button.recording {
+  width: auto;
+  padding: 0 12px;
   background: var(--error);
   color: white;
-  animation: pulse-recording 1.5s ease-in-out infinite;
+  gap: 8px;
 }
 
 .voice-input-button:disabled {
@@ -143,16 +179,34 @@
   cursor: not-allowed;
 }
 
-@keyframes pulse-recording {
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  animation: recordingBlink 1s ease-in-out infinite;
+}
+
+@keyframes recordingBlink {
   0%,
   100% {
     opacity: 1;
-    transform: scale(1);
   }
   50% {
-    opacity: 0.7;
-    transform: scale(1.05);
+    opacity: 0.3;
   }
+}
+
+.recording-time {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Audio Preview Styles */
@@ -167,13 +221,52 @@
 .audio-preview {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: 10px 14px;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.preview-play-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+
+.preview-play-btn:hover {
+  transform: scale(1.05);
+  background: var(--accent-hover);
+}
+
+.preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.preview-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.preview-duration {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 .audio-preview svg {
@@ -182,8 +275,8 @@
 }
 
 .remove-audio-button {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,18 +1,23 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import "./MessageInput.css";
 
 const MAX_IMAGES = 4;
 
-function MessageInput({ onSend, disabled }) {
+function MessageInput({ onSend, disabled, sttConfig }) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const previewAudioRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   const handleSubmit = useCallback(() => {
     if ((input.trim() || images.length > 0 || recordedBlob) && !disabled) {
@@ -131,8 +136,54 @@ function MessageInput({ onSend, disabled }) {
 
       mediaRecorder.start();
       setIsRecording(true);
+      setRecordingDuration(0);
+
+      // Start recording timer
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+
+      // Start speech recognition if available and configured
+      if (
+        sttConfig?.continuous &&
+        ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
+      ) {
+        startSpeechRecognition();
+      }
     } catch (err) {
       console.error("Failed to start recording:", err);
+    }
+  };
+
+  const startSpeechRecognition = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.lang = sttConfig?.language || "en-US";
+    recognitionRef.current.continuous = sttConfig?.continuous || false;
+    recognitionRef.current.interimResults = true;
+
+    recognitionRef.current.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput((prev) => prev + transcript);
+    };
+
+    recognitionRef.current.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+    };
+
+    recognitionRef.current.start();
+  };
+
+  const stopSpeechRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
   };
 
@@ -140,6 +191,12 @@ function MessageInput({ onSend, disabled }) {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      stopSpeechRecognition();
+
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
     }
   };
 
@@ -152,7 +209,45 @@ function MessageInput({ onSend, disabled }) {
   };
 
   const handleRemoveRecording = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+    }
     setRecordedBlob(null);
+    setIsPlayingPreview(false);
+  };
+
+  const togglePreviewPlayback = () => {
+    if (!previewAudioRef.current || !recordedBlob) return;
+
+    if (isPlayingPreview) {
+      previewAudioRef.current.pause();
+      setIsPlayingPreview(false);
+    } else {
+      previewAudioRef.current.play();
+      setIsPlayingPreview(true);
+    }
+  };
+
+  const handlePreviewEnded = () => {
+    setIsPlayingPreview(false);
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const canSend =
@@ -201,16 +296,44 @@ function MessageInput({ onSend, disabled }) {
       {recordedBlob && (
         <div className="audio-preview-container">
           <div className="audio-preview">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M8 1v10M4 5v6M12 5v6M2 7v4M14 7v4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                fill="none"
-              />
-            </svg>
-            <span>Recorded audio</span>
+            <audio
+              ref={previewAudioRef}
+              src={URL.createObjectURL(recordedBlob)}
+              onEnded={handlePreviewEnded}
+            />
+            <button
+              type="button"
+              className="preview-play-btn"
+              onClick={togglePreviewPlayback}
+              aria-label={isPlayingPreview ? "Pause preview" : "Play preview"}
+            >
+              {isPlayingPreview ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                >
+                  <rect x="3" y="2" width="4" height="12" rx="1" />
+                  <rect x="9" y="2" width="4" height="12" rx="1" />
+                </svg>
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                >
+                  <path d="M4 2.5v11l9-5.5z" />
+                </svg>
+              )}
+            </button>
+            <div className="preview-info">
+              <span className="preview-label">Voice message</span>
+              <span className="preview-duration">
+                {formatDuration(recordingDuration)}
+              </span>
+            </div>
             <button
               type="button"
               className="remove-audio-button"
@@ -230,7 +353,7 @@ function MessageInput({ onSend, disabled }) {
         </div>
       )}
       <div
-        className={`input-wrapper ${isDragging ? "dragging" : ""}`}
+        className={`input-wrapper ${isDragging ? "dragging" : ""} ${isRecording ? "recording" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -283,9 +406,12 @@ function MessageInput({ onSend, disabled }) {
           aria-label={isRecording ? "Stop recording" : "Start recording"}
         >
           {isRecording ? (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-              <rect x="4" y="4" width="12" height="12" rx="2" />
-            </svg>
+            <div className="recording-indicator">
+              <span className="recording-dot"></span>
+              <span className="recording-time">
+                {formatDuration(recordingDuration)}
+              </span>
+            </div>
           ) : (
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path
@@ -310,7 +436,9 @@ function MessageInput({ onSend, disabled }) {
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
+          placeholder={
+            isRecording ? "Recording... speak now" : "Type your message..."
+          }
           rows={1}
           disabled={disabled}
         />
@@ -335,7 +463,14 @@ function MessageInput({ onSend, disabled }) {
         </button>
       </div>
       <p className="input-hint">
-        Press Enter to send, Shift+Enter for new line
+        {isRecording ? (
+          <span className="recording-hint">
+            <span className="recording-pulse"></span>
+            Recording... Click microphone to stop
+          </span>
+        ) : (
+          "Press Enter to send, Shift+Enter for new line"
+        )}
       </p>
     </div>
   );

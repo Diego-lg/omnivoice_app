@@ -126,6 +126,13 @@ export async function textToSpeech(
     voiceProfileId = null,
   } = options;
 
+  // Validate voice mode requirements
+  if (voice === "design" && !voiceConfig.instruct) {
+    throw new Error(
+      "Voice mode 'design' requires an instruction description (e.g., 'male voice, british accent'). Please provide a voice description in settings.",
+    );
+  }
+
   // Build request body following OpenAI /v1/audio/speech format
   const requestBody = {
     input: text,
