@@ -2,7 +2,6 @@
   padding: var(--spacing-lg) 0;
   border-top: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  contain: layout style;
   background: linear-gradient(0deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
   position: relative;
   z-index: 10;
