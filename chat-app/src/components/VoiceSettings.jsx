@@ -125,22 +125,124 @@ function VoiceSettings({ config, onUpdate }) {
     });
   };
 
-  const handleRefAudioChange = (e) => {
+  const handleRefAudioChange = async (e) => {
     const file = e.target.files?.[0];
     if (file) {
       setRefAudioFile(file);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result.split(",")[1];
-        onUpdate({
-          voiceConfig: {
-            ...config.voiceConfig,
-            refAudio: base64,
-          },
-        });
-      };
-      reader.readAsDataURL(file);
+
+      try {
+        // Read file as array buffer
+        const arrayBuffer = await file.arrayBuffer();
+
+        // Decode audio to check sample rate and resample if needed
+        const audioContext = new (
+          window.AudioContext || window.webkitAudioContext
+        )();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const originalSampleRate = audioBuffer.sampleRate;
+
+        let processedBuffer = audioBuffer;
+
+        // Resample to 24kHz if needed
+        if (originalSampleRate !== 24000) {
+          console.log(`Resampling from ${originalSampleRate}Hz to 24000Hz`);
+          const offlineContext = new OfflineAudioContext(
+            audioBuffer.numberOfChannels,
+            audioBuffer.duration * 24000,
+            24000,
+          );
+          const source = offlineContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(offlineContext.destination);
+          source.start();
+          processedBuffer = await offlineContext.startRendering();
+        }
+
+        audioContext.close();
+
+        // Convert processed buffer to WAV base64
+        const wavBlob = audioBufferToWav(processedBuffer);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target.result.split(",")[1];
+          onUpdate({
+            voiceConfig: {
+              ...config.voiceConfig,
+              refAudio: base64,
+            },
+          });
+        };
+        reader.readAsDataURL(wavBlob);
+      } catch (err) {
+        console.error("Failed to process audio:", err);
+        // Fallback: just read as base64
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target.result.split(",")[1];
+          onUpdate({
+            voiceConfig: {
+              ...config.voiceConfig,
+              refAudio: base64,
+            },
+          });
+        };
+        reader.readAsDataURL(file);
+      }
     }
+  };
+
+  // Helper to convert AudioBuffer to WAV
+  const audioBufferToWav = (buffer) => {
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const bitDepth = 16;
+
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = buffer.length * blockAlign;
+    const headerSize = 44;
+    const totalSize = headerSize + dataSize;
+
+    const arrayBuffer = new ArrayBuffer(totalSize);
+    const view = new DataView(arrayBuffer);
+
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, totalSize - 8, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    writeString(36, "data");
+    view.setUint32(40, dataSize, true);
+
+    const channels = [];
+    for (let i = 0; i < numChannels; i++) {
+      channels.push(buffer.getChannelData(i));
+    }
+
+    let offset = 44;
+    for (let i = 0; i < buffer.length; i++) {
+      for (let ch = 0; ch < numChannels; ch++) {
+        const sample = Math.max(-1, Math.min(1, channels[ch][i]));
+        const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(offset, intSample, true);
+        offset += 2;
+      }
+    }
+
+    return new Blob([arrayBuffer], { type: "audio/wav" });
   };
 
   const handleInstructChange = (e) => {
@@ -616,8 +718,8 @@ function VoiceSettings({ config, onUpdate }) {
                   {refAudioFile ? refAudioFile.name : "Upload Audio"}
                 </button>
                 <p className="form-hint">
-                  Upload a clear audio sample (24kHz WAV recommended, 10-60
-                  seconds)
+                  Upload audio at any sample rate - automatically resampled to
+                  24kHz (10-60 seconds recommended)
                 </p>
               </div>
               <div className="form-group">

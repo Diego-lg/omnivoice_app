@@ -53,6 +53,141 @@ async function blobToBase64(blob) {
 }
 
 /**
+ * Resample audio to target sample rate using Web Audio API
+ * @param {Blob} blob - Audio blob to resample
+ * @param {number} targetSampleRate - Target sample rate (default 24000)
+ * @returns {Promise<Blob>} Resampled audio as WAV Blob
+ */
+async function resampleAudio(blob, targetSampleRate = 24000) {
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+  const offlineContext = new OfflineAudioContext(
+    audioBuffer.numberOfChannels,
+    audioBuffer.duration * targetSampleRate,
+    targetSampleRate,
+  );
+  offlineContext.renderBuffer(audioBuffer);
+
+  const renderedBuffer = await offlineContext.render();
+
+  // Convert to WAV
+  const wavBlob = audioBufferToWav(renderedBuffer);
+  audioContext.close();
+  return wavBlob;
+}
+
+/**
+ * Convert AudioBuffer to WAV Blob
+ * @param {AudioBuffer} buffer
+ * @returns {Blob}
+ */
+function audioBufferToWav(buffer) {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buffer.length * blockAlign;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+
+  // WAV header
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, totalSize - 8, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  // Interleave channels and write samples
+  const channels = [];
+  for (let i = 0; i < numChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const sample = Math.max(-1, Math.min(1, channels[ch][i]));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: "audio/wav" });
+}
+
+/**
+ * Check audio sample rate using Web Audio API
+ * Returns the sample rate or null if unable to determine
+ * @param {Blob} blob
+ * @returns {Promise<number|null>}
+ */
+async function getAudioSampleRate(blob) {
+  try {
+    const audioContext = new (
+      window.AudioContext || window.webkitAudioContext
+    )();
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const sampleRate = audioBuffer.sampleRate;
+    audioContext.close();
+    return sampleRate;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate that audio is at the correct sample rate (24000Hz)
+ * @param {Blob} blob
+ * @throws {Error} If sample rate is invalid
+ */
+async function validateAudioSampleRate(blob) {
+  const sampleRate = await getAudioSampleRate(blob);
+  if (sampleRate !== null && sampleRate !== 24000) {
+    throw new Error(
+      `Invalid audio sample rate: ${sampleRate}Hz. OmniVoice requires 24000Hz audio. ` +
+        `Please resample your audio to 24kHz using a tool like Audacity or ffmpeg.`,
+    );
+  }
+}
+
+/**
+ * Resample audio and convert to Base64
+ * Returns both the resampled blob (for later validation) and base64 string
+ * @param {Blob} blob
+ * @returns {Promise<{blob: Blob, base64: string}>}
+ */
+async function resampleAudioToBase64(blob) {
+  const resampledBlob = await resampleAudio(blob, 24000);
+  const base64 = await blobToBase64(resampledBlob);
+  return { blob: resampledBlob, base64 };
+}
+
+/**
  * Transcribe audio using the Web Speech API (browser fallback)
  * @param {Blob} audioBlob
  * @returns {Promise<string>}
@@ -129,7 +264,14 @@ export async function textToSpeech(
   // Validate voice mode requirements
   if (voice === "design" && !voiceConfig.instruct) {
     throw new Error(
-      "Voice mode 'design' requires an instruction description (e.g., 'male voice, british accent'). Please provide a voice description in settings.",
+      "Voice mode 'design' requires an instruction description (e.g., 'male, british accent'). Please provide a voice description in settings.",
+    );
+  }
+
+  // Validate clone mode has reference audio
+  if (voice === "clone" && !voiceConfig.refAudio) {
+    throw new Error(
+      "Voice mode 'clone' requires reference audio. Please upload a clear audio sample (24kHz WAV recommended, 10-60 seconds).",
     );
   }
 
@@ -207,12 +349,21 @@ export async function speechToSpeech(
   options = {},
   baseUrl = OMNIVOICE_BASE_URL,
 ) {
+  // Check sample rate and auto-resample to 24kHz if needed
+  const sampleRate = await getAudioSampleRate(audioBlob);
+  let processedBlob = audioBlob;
+
+  if (sampleRate !== null && sampleRate !== 24000) {
+    console.log(`Resampling audio from ${sampleRate}Hz to 24000Hz`);
+    processedBlob = await resampleAudio(audioBlob, 24000);
+  }
+
   // First, transcribe the input audio
   let transcript = text;
 
   if (!transcript) {
     try {
-      transcript = await transcribeWithWebSpeech(audioBlob);
+      transcript = await transcribeWithWebSpeech(processedBlob);
     } catch (err) {
       throw new Error(`Transcription failed: ${err.message}`);
     }
@@ -221,7 +372,7 @@ export async function speechToSpeech(
   // Get base64 of the reference audio
   let refAudioBase64;
   try {
-    refAudioBase64 = await blobToBase64(audioBlob);
+    refAudioBase64 = await blobToBase64(processedBlob);
   } catch (err) {
     throw new Error(`Failed to encode reference audio: ${err.message}`);
   }
