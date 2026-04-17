@@ -39,7 +39,7 @@ function Header({
             <path d="M3 5h14M3 10h14M3 15h10" strokeLinecap="round" />
           </svg>
         </button>
-        <h1 className="logo">OMNIVOICE</h1>
+        <h1 className="logo">OMNI</h1>
         <div className="current-chat-name">
           <span>{currentSessionName}</span>
         </div>

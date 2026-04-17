@@ -25,7 +25,7 @@ function loadConfig() {
   } catch {}
   return {
     provider: "ollama",
-    minimaxApiKey: "",
+    minimaxApiKey: import.meta.env.VITE_MINIMAX_API_KEY || "",
     minimaxModel: "M2-her",
     ollamaBaseUrl: "http://localhost:11434",
     ollamaModel: "llama3.2",
