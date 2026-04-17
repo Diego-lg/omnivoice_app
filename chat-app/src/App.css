@@ -5,11 +5,22 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 0 16px;
+  padding-left: 48px;
+  transition: padding-left 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app.history-open {
+  padding-left: 328px;
 }
 
 @media (min-width: 768px) {
   .app {
     padding: 0 24px;
+    padding-left: 48px;
+  }
+
+  .app.history-open {
+    padding-left: 328px;
   }
 }
 

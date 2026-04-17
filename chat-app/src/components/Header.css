@@ -13,12 +13,47 @@
   gap: 12px;
 }
 
+.history-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  transition: all 150ms ease;
+}
+
+.history-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 .logo {
   font-family: "IBM Plex Mono", "SF Mono", "Consolas", monospace;
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--text-primary);
+}
+
+.current-chat-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  max-width: 240px;
+}
+
+.current-chat-name span {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-right {
@@ -86,87 +121,4 @@
 
 .menu-dropdown button svg {
   flex-shrink: 0;
-}
-
-/* Branch Selector */
-.branch-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 150ms ease;
-}
-
-.branch-indicator:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.branch-indicator .dropdown-arrow {
-  transition: transform 150ms ease;
-}
-
-.branch-indicator .dropdown-arrow.open {
-  transform: rotate(180deg);
-}
-
-.branch-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 99;
-}
-
-.branch-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  z-index: 100;
-  min-width: 180px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.branch-option {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 12px 16px;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-  text-align: left;
-  transition: background 150ms ease;
-}
-
-.branch-option:hover {
-  background: var(--bg-secondary);
-}
-
-.branch-option.active {
-  background: var(--bg-secondary);
-  color: var(--accent);
-}
-
-.branch-option.active .branch-name {
-  color: var(--accent);
-}
-
-.branch-lineage {
-  font-size: 11px;
-  color: var(--text-tertiary);
 }

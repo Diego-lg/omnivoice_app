@@ -89,6 +89,7 @@ export async function* streamMinimaxResponse(
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
   const seenChunks = new Set(); // Track seen chunks to avoid duplicates
+  const lastYieldedContent = new Set(); // Track last yielded content to avoid duplicates
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -135,7 +136,22 @@ export async function* streamMinimaxResponse(
             content = choice.message.content;
           }
 
-          if (content) {
+          if (content && content.trim()) {
+            // Skip if we already yielded this exact content to avoid duplicates
+            if (lastYieldedContent.has(content)) {
+              console.log(
+                "[MiniMax] Skipping duplicate content:",
+                content.substring(0, 30),
+              );
+              continue;
+            }
+            lastYieldedContent.add(content);
+            // Limit size of tracking set to prevent memory issues
+            if (lastYieldedContent.size > 1000) {
+              const firstKey = lastYieldedContent.values().next().value;
+              lastYieldedContent.delete(firstKey);
+            }
+
             console.log(
               "[MiniMax] Yielding:",
               content.substring(0, 50) + "...",

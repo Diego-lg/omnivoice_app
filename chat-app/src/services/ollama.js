@@ -29,6 +29,7 @@ export async function* streamOllamaResponse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const lastYieldedContent = new Set(); // Track last yielded content to avoid duplicates
 
   try {
     while (true) {
@@ -45,7 +46,18 @@ export async function* streamOllamaResponse(
         try {
           const parsed = JSON.parse(line);
           const content = parsed.message?.content;
-          if (content) {
+          if (content && content.trim()) {
+            // Skip if we already yielded this exact content to avoid duplicates
+            if (lastYieldedContent.has(content)) {
+              console.log("[Ollama] Skipping duplicate content");
+              continue;
+            }
+            lastYieldedContent.add(content);
+            // Limit size of tracking set to prevent memory issues
+            if (lastYieldedContent.size > 1000) {
+              const firstKey = lastYieldedContent.values().next().value;
+              lastYieldedContent.delete(firstKey);
+            }
             yield content;
           }
           if (parsed.done) {

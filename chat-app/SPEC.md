@@ -205,7 +205,26 @@
 | Technical Analyst | 📊 | Technical analysis and research |
 | Debate Partner | ⚖️ | Discussion and debate partner |
 
-### 11. ChatMessage Component (Enhanced)
+### 11. ChatHistory Component
+
+**Files**: `ChatHistory.jsx`, `ChatHistory.css`
+
+**Description**: Sliding sidebar panel for managing chat sessions
+
+**Features**:
+
+- Slide-in sidebar from left side with backdrop
+- New chat button to create fresh conversations
+- Search input to filter sessions by title/content
+- Session cards showing title, time ago, message count
+- Inline rename functionality with Enter/Escape keys
+- Export individual session as JSON file
+- Export all chats as JSON backup
+- Delete session with hover actions
+- Sessions sorted by most recent activity
+- Toggle button visible when sidebar is closed
+
+### 12. ChatMessage Component (Enhanced)
 
 **Files**: `ChatMessage.jsx`, `ChatMessage.css`
 
@@ -362,7 +381,9 @@ chat-app/
 │   │   ├── PersonaSelector.jsx
 │   │   ├── PersonaSelector.css
 │   │   ├── PersonaEditor.jsx
-│   │   └── PersonaEditor.css
+│   │   ├── PersonaEditor.css
+│   │   ├── ChatHistory.jsx
+│   │   └── ChatHistory.css
 │   ├── data/
 │   │   └── personas.js
 │   └── services/
@@ -421,13 +442,6 @@ chat-app/
 27. ✅ Click navigates to message
 28. ✅ Keyboard navigation works (arrows, Enter, Escape)
 
-#### Conversation Branching
-
-29. ✅ User can fork conversation at any message
-30. ✅ Branch selector dropdown in header
-31. ✅ Branches persist to localStorage
-32. ✅ Each branch maintains independent message history
-
 #### Multiple Persona Editor
 
 33. ✅ 5 premade personas available
@@ -441,3 +455,16 @@ chat-app/
 38. ✅ Blinking cursor during streaming
 39. ✅ Smooth container expansion animation
 40. ✅ Max-height scroll for long messages
+
+#### Chat History
+
+41. ✅ Sidebar chat history panel with slide-in animation
+42. ✅ New chat button to create new conversations
+43. ✅ Search through all chat sessions
+44. ✅ Rename chat sessions inline
+45. ✅ Delete chat sessions with confirmation
+46. ✅ Export individual sessions as JSON
+47. ✅ Export all chats as JSON backup
+48. ✅ Sessions sorted by most recent activity
+49. ✅ Time ago display (just now, 5m, 2h, 3d, etc.)
+50. ✅ localStorage persistence for sessions
