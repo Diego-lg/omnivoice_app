@@ -238,6 +238,23 @@
 - Max-height with scroll for long messages
 - Smooth container expansion animation
 
+### 13. LLM Settings Panel
+
+**Files**: `SettingsModal.jsx`, `SettingsModal.css`
+
+**Description**: Tab in Settings modal for controlling LLM response generation parameters
+
+**Features**:
+
+- Max Tokens: Number input (1-8192, default 2048)
+- Temperature: Slider (0-1, default 0.8)
+- Top P: Slider (0-1, default 0.9)
+- Presence Penalty: Slider (-2 to 2, default 0.0)
+- Frequency Penalty: Slider (-2 to 2, default 0.0)
+- Repetition Penalty: Slider (1-2, default 1.0)
+- Real-time value display next to each slider
+- Settings passed to MiniMax API request body
+
 ## Functionality Specification
 
 ### Core Features
@@ -461,3 +478,15 @@ chat-app/
 48. ✅ Sessions sorted by most recent activity
 49. ✅ Time ago display (just now, 5m, 2h, 3d, etc.)
 50. ✅ localStorage persistence for sessions
+
+#### LLM Settings
+
+51. ✅ New "LLM Settings" tab in Settings modal
+52. ✅ Max Tokens control (1-8192, default 2048)
+53. ✅ Temperature slider (0-1, default 0.8)
+54. ✅ Top P slider (0-1, default 0.9)
+55. ✅ Presence Penalty slider (-2 to 2, default 0.0)
+56. ✅ Frequency Penalty slider (-2 to 2, default 0.0)
+57. ✅ Repetition Penalty slider (1-2, default 1.0)
+58. ✅ Settings passed to MiniMax API request body
+59. ✅ Real-time value display next to each slider

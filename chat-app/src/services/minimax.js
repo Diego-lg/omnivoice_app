@@ -12,6 +12,7 @@ export async function* streamMinimaxResponse(
   messages,
   apiKey,
   model = "MiniMax-M2.7",
+  llmConfig = {},
 ) {
   console.log("[MiniMax] Starting request with model:", model);
   console.log("[MiniMax] Number of messages:", messages.length);
@@ -24,6 +25,20 @@ export async function* streamMinimaxResponse(
       content: m.content,
     })),
     stream: true,
+    max_tokens: llmConfig.maxTokens || 2048,
+    temperature:
+      llmConfig.temperature !== undefined ? llmConfig.temperature : 0.8,
+    top_p: llmConfig.topP !== undefined ? llmConfig.topP : 0.9,
+    presence_penalty:
+      llmConfig.presencePenalty !== undefined ? llmConfig.presencePenalty : 0.0,
+    frequency_penalty:
+      llmConfig.frequencyPenalty !== undefined
+        ? llmConfig.frequencyPenalty
+        : 0.0,
+    repetition_penalty:
+      llmConfig.repetitionPenalty !== undefined
+        ? llmConfig.repetitionPenalty
+        : 1.0,
   };
 
   let response;

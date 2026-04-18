@@ -43,6 +43,14 @@ const DEFAULT_CONFIG = {
     codeStyle: "dark",
     markdown: true,
   },
+  llmConfig: {
+    maxTokens: 2048,
+    temperature: 0.8,
+    topP: 0.9,
+    presencePenalty: 0.0,
+    frequencyPenalty: 0.0,
+    repetitionPenalty: 1.0,
+  },
 };
 
 function loadConfig() {
@@ -399,6 +407,7 @@ function App() {
             chatHistory,
             config.minimaxApiKey,
             config.minimaxModel,
+            config.llmConfig,
           );
         } else {
           throw new Error("Invalid provider configured.");

@@ -7,6 +7,7 @@ const TABS = {
   PROVIDER: "provider",
   VOICE: "voice",
   FORMATTING: "formatting",
+  LLM: "llm",
 };
 
 function SettingsModal({ config, onUpdate, onClose }) {
@@ -123,6 +124,22 @@ function SettingsModal({ config, onUpdate, onClose }) {
               <path d="M2 4h12M4 8h8M6 12h4" strokeLinecap="round" />
             </svg>
             Formatting
+          </button>
+          <button
+            className={`settings-tab ${activeTab === TABS.LLM ? "active" : ""}`}
+            onClick={() => setActiveTab(TABS.LLM)}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M3 3h10M3 8h10M3 13h6" strokeLinecap="round" />
+            </svg>
+            LLM Settings
           </button>
         </div>
 
@@ -291,6 +308,170 @@ function SettingsModal({ config, onUpdate, onClose }) {
                 </label>
                 <p className="form-hint">
                   Enable or disable markdown formatting in messages
+                </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === TABS.LLM && (
+            <div className="settings-section">
+              <h3 className="section-title">LLM Response Settings</h3>
+              <p className="form-hint section-description">
+                Control how the LLM generates responses
+              </p>
+
+              <div className="form-group">
+                <label className="form-label">Max Tokens</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={localConfig.llmConfig?.maxTokens || 2048}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        maxTokens: parseInt(e.target.value) || 2048,
+                      },
+                    })
+                  }
+                  min="1"
+                  max="8192"
+                />
+                <p className="form-hint">
+                  Maximum number of tokens in the response (1-8192)
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Temperature: {localConfig.llmConfig?.temperature ?? 0.8}
+                </label>
+                <input
+                  type="range"
+                  className="form-range"
+                  value={localConfig.llmConfig?.temperature ?? 0.8}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        temperature: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <p className="form-hint">
+                  Higher values make output more random, lower values more
+                  deterministic (0-1)
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Top P: {localConfig.llmConfig?.topP ?? 0.9}
+                </label>
+                <input
+                  type="range"
+                  className="form-range"
+                  value={localConfig.llmConfig?.topP ?? 0.9}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        topP: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <p className="form-hint">
+                  Nucleus sampling threshold - controls diversity of token
+                  selection (0-1)
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Presence Penalty:{" "}
+                  {localConfig.llmConfig?.presencePenalty ?? 0.0}
+                </label>
+                <input
+                  type="range"
+                  className="form-range"
+                  value={localConfig.llmConfig?.presencePenalty ?? 0.0}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        presencePenalty: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  min="-2"
+                  max="2"
+                  step="0.1"
+                />
+                <p className="form-hint">
+                  Penalizes repeated topics - higher values encourage discussing
+                  new topics (-2 to 2)
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Frequency Penalty:{" "}
+                  {localConfig.llmConfig?.frequencyPenalty ?? 0.0}
+                </label>
+                <input
+                  type="range"
+                  className="form-range"
+                  value={localConfig.llmConfig?.frequencyPenalty ?? 0.0}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        frequencyPenalty: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  min="-2"
+                  max="2"
+                  step="0.1"
+                />
+                <p className="form-hint">
+                  Penalizes repeated tokens - higher values reduce repetition
+                  (-2 to 2)
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Repetition Penalty:{" "}
+                  {localConfig.llmConfig?.repetitionPenalty ?? 1.0}
+                </label>
+                <input
+                  type="range"
+                  className="form-range"
+                  value={localConfig.llmConfig?.repetitionPenalty ?? 1.0}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      llmConfig: {
+                        ...localConfig.llmConfig,
+                        repetitionPenalty: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                  min="1"
+                  max="2"
+                  step="0.05"
+                />
+                <p className="form-hint">
+                  Controls how much to penalize repeated tokens - higher values
+                  reduce repetition (1-2)
                 </p>
               </div>
             </div>
