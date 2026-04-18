@@ -39,6 +39,8 @@ const DEFAULT_CONFIG = {
     defaultVolume: 1.0,
     defaultSpeed: 1.0,
   },
+  /** When on, TTS is enabled and replies use speech-to-speech when you send a mic clip. */
+  realtimeSpeechToSpeech: false,
   textFormatConfig: {
     fontSize: "medium",
     fontFamily: "system",
@@ -249,6 +251,14 @@ function App() {
     });
   }, []);
 
+  const handleRealtimeStsToggle = useCallback(() => {
+    const next = !config.realtimeSpeechToSpeech;
+    updateConfig({
+      realtimeSpeechToSpeech: next,
+      ...(next ? { voiceEnabled: true } : {}),
+    });
+  }, [config.realtimeSpeechToSpeech, updateConfig]);
+
   const scrollToBottom = useCallback(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -351,7 +361,7 @@ function App() {
       // Create or reuse a shared AudioContext while we're inside a user gesture.
       // Browsers require a gesture to allow audio playback; creating the context
       // here (before any async work) ensures it starts in "running" state.
-      if (config.voiceEnabled) {
+      if (config.voiceEnabled || config.realtimeSpeechToSpeech) {
         try {
           const AudioCtx = window.AudioContext || window.webkitAudioContext;
           if (
@@ -435,7 +445,8 @@ function App() {
 
       try {
         let stream;
-        const voiceEnabled = config.voiceEnabled;
+        const voiceEnabled =
+          config.voiceEnabled || config.realtimeSpeechToSpeech;
 
         if (config.provider === "minimax") {
           if (!config.minimaxApiKey) {
@@ -684,6 +695,8 @@ function App() {
           onSend={sendMessage}
           disabled={isLoading}
           sttConfig={config.sttConfig}
+          realtimeStsEnabled={!!config.realtimeSpeechToSpeech}
+          onRealtimeStsToggle={handleRealtimeStsToggle}
         />
       </div>
       {showSettings && (

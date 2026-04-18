@@ -1,9 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import RealtimeStsToggle from "./RealtimeStsToggle";
 import "./MessageInput.css";
 
 const MAX_IMAGES = 4;
 
-function MessageInput({ onSend, disabled, sttConfig }) {
+function MessageInput({
+  onSend,
+  disabled,
+  sttConfig,
+  realtimeStsEnabled = false,
+  onRealtimeStsToggle,
+}) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -384,6 +391,13 @@ function MessageInput({ onSend, disabled, sttConfig }) {
 
   return (
     <div className="message-input-container">
+      {typeof onRealtimeStsToggle === "function" && (
+        <RealtimeStsToggle
+          enabled={realtimeStsEnabled}
+          disabled={disabled}
+          onToggle={onRealtimeStsToggle}
+        />
+      )}
       {images.length > 0 && (
         <div className="image-preview-container">
           {images.map((image, index) => (
@@ -473,7 +487,7 @@ function MessageInput({ onSend, disabled, sttConfig }) {
         </div>
       )}
       <div
-        className={`input-wrapper ${isDragging ? "dragging" : ""} ${isRecording ? "recording" : ""}`}
+        className={`input-wrapper ${isDragging ? "dragging" : ""} ${isRecording ? "recording" : ""} ${realtimeStsEnabled ? "rts-live" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -572,6 +586,12 @@ function MessageInput({ onSend, disabled, sttConfig }) {
             <span className="recording-pulse"></span>
             Recording — click mic to stop. Your speech is captioned for the
             model (Chrome / Edge).
+          </span>
+        ) : realtimeStsEnabled ? (
+          <span className="rts-hint">
+            <span className="rts-hint__dot" aria-hidden />
+            Live speech → speech: tap the mic, speak, stop, then send — the
+            assistant’s reply is synthesized in your voice (OmniVoice STS).
           </span>
         ) : (
           "Press Enter to send, Shift+Enter for new line"
