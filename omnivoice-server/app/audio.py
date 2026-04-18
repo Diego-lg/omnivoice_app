@@ -2,6 +2,8 @@
 
 import base64
 import io
+import os
+import tempfile
 from typing import Optional
 
 import numpy as np
@@ -64,6 +66,71 @@ def decode_audio_from_base64(
         waveform = waveform / max_val
 
     return waveform, sr
+
+
+def decode_base64_audio_for_transcription(
+    audio_b64: str,
+    mime_type: Optional[str] = None,
+) -> tuple[np.ndarray, int]:
+    """Decode browser-uploaded audio to mono float32 for Whisper ASR.
+
+    Accepts 24kHz WAV (from client resample) or WebM/Opus, OGG, MP4/M4A via
+    torchaudio when soundfile cannot read the container.
+    """
+    raw = base64.b64decode(audio_b64)
+    mime = (mime_type or "").lower()
+
+    is_wav_hint = "wav" in mime or (
+        len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WAVE"
+    )
+
+    if is_wav_hint:
+        try:
+            buffer = io.BytesIO(raw)
+            waveform, sr = sf.read(buffer, dtype=np.float32)
+        except Exception as e:
+            raise ValueError(f"Failed to decode WAV for transcription: {e}") from e
+        if waveform.ndim > 1:
+            waveform = np.mean(waveform, axis=1)
+        max_val = float(np.abs(waveform).max()) if waveform.size else 0.0
+        if max_val > 1.0:
+            waveform = waveform / max_val
+        return waveform, int(sr)
+
+    try:
+        import torchaudio
+    except ImportError as e:
+        raise ValueError(
+            "Non-WAV transcription requires torchaudio (install server deps)."
+        ) from e
+
+    if "mp4" in mime or "m4a" in mime or "aac" in mime:
+        suffix = ".m4a"
+    elif "ogg" in mime:
+        suffix = ".ogg"
+    else:
+        suffix = ".webm"
+
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as tmp:
+            tmp.write(raw)
+        tensor, sr = torchaudio.load(path)
+        wav = tensor.mean(dim=0).detach().cpu().numpy().astype(np.float32)
+        max_val = float(np.abs(wav).max()) if wav.size else 0.0
+        if max_val > 1.0:
+            wav = wav / max_val
+        return wav, int(sr)
+    except Exception as e:
+        raise ValueError(
+            f"Could not decode audio for transcription ({suffix}). "
+            f"Ensure ffmpeg/torchaudio codecs are available. Original error: {e}"
+        ) from e
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def audio_to_tensor(

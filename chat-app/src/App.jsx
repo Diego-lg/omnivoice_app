@@ -6,7 +6,7 @@ import SearchOverlay from "./components/SearchOverlay";
 import SettingsModal from "./components/SettingsModal";
 import PersonaEditor from "./components/PersonaEditor";
 import ChatHistory from "./components/ChatHistory";
-import { minimax, omnivoice } from "./services/api";
+import { minimax, omnivoice, getOmnivoiceBaseUrl } from "./services/api";
 import { stripEmojis, prepareTextForTts } from "./utils/text";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
@@ -41,6 +41,8 @@ const DEFAULT_CONFIG = {
   },
   /** When on, TTS is enabled and replies use speech-to-speech when you send a mic clip. */
   realtimeSpeechToSpeech: false,
+  /** OmniVoice HTTP root (e.g. http://192.168.1.10:8005). Empty = same origin / Vite proxy. */
+  omnivoiceBaseUrl: import.meta.env.VITE_OMNIVOICE_API_URL || "",
   textFormatConfig: {
     fontSize: "medium",
     fontFamily: "system",
@@ -350,13 +352,38 @@ function App() {
         return;
 
       const trimmed = content.trim();
-      // The LLM API is text-only; the mic clip is for playback / TTS only.
-      if (voiceBlob && !trimmed) {
-        setError(
-          "Your voice note has no text for the model. Speak while recording so live captions appear (Chrome or Edge), or type a message before sending.",
-        );
-        return;
+      const omnivoiceApiRoot = getOmnivoiceBaseUrl(config);
+      let llmUserText = trimmed;
+      const needsServerTranscription =
+        voiceBlob &&
+        (!llmUserText || llmUserText === "(Voice message)");
+
+      /** When server ASR fails, still attach audio and call the LLM with an explicit instruction. */
+      let voiceTranscriptionFallback = false;
+
+      if (needsServerTranscription) {
+        try {
+          llmUserText = (
+            await omnivoice.transcribeVoiceBlob(voiceBlob, omnivoiceApiRoot)
+          ).trim();
+        } catch (err) {
+          console.warn("Voice transcription failed:", err);
+          voiceTranscriptionFallback = true;
+          llmUserText =
+            "The user sent a spoken voice message. Automatic transcription was unavailable, so you do not have a verbatim transcript. Respond helpfully and concisely.";
+        }
+        if (!llmUserText.trim()) {
+          voiceTranscriptionFallback = true;
+          llmUserText =
+            "The user sent a spoken voice message. Automatic transcription returned empty text. Respond helpfully and concisely.";
+        }
       }
+
+      const userDisplayContent =
+        voiceTranscriptionFallback &&
+        (!trimmed || trimmed === "(Voice message)")
+          ? "Voice message"
+          : llmUserText;
 
       // Create or reuse a shared AudioContext while we're inside a user gesture.
       // Browsers require a gesture to allow audio playback; creating the context
@@ -381,7 +408,7 @@ function App() {
       const userMessage = {
         id: Date.now(),
         role: "user",
-        content: trimmed,
+        content: userDisplayContent,
         images: images,
         timestamp: new Date().toISOString(),
         audioBlob: voiceBlob || null,
@@ -440,7 +467,7 @@ function App() {
           role: m.role,
           content: m.content,
         })),
-        { role: "user", content: trimmed },
+        { role: "user", content: llmUserText },
       ];
 
       try {
@@ -572,7 +599,12 @@ function App() {
 
           if (voiceBlob) {
             omnivoice
-              .speechToSpeech(voiceBlob, ttsContent, ttsOptions)
+              .speechToSpeech(
+                voiceBlob,
+                ttsContent,
+                ttsOptions,
+                omnivoiceApiRoot,
+              )
               .then((audioResult) => {
                 attachAudio(audioResult.audioBlob, audioResult.audioUrl, {
                   transcript: audioResult.transcript,
@@ -584,7 +616,11 @@ function App() {
                   stsErr,
                 );
                 omnivoice
-                  .streamTextToSpeech(ttsContent, ttsOptions)
+                  .streamTextToSpeech(
+                    ttsContent,
+                    ttsOptions,
+                    omnivoiceApiRoot,
+                  )
                   .then(({ audioBlob, audioUrl }) =>
                     attachAudio(audioBlob, audioUrl),
                   )
@@ -595,7 +631,11 @@ function App() {
               });
           } else {
             omnivoice
-              .streamTextToSpeech(ttsContent, ttsOptions)
+              .streamTextToSpeech(
+                ttsContent,
+                ttsOptions,
+                omnivoiceApiRoot,
+              )
               .then(({ audioBlob, audioUrl }) =>
                 attachAudio(audioBlob, audioUrl),
               )

@@ -12,7 +12,11 @@ import torch
 
 from omnivoice.models.omnivoice import OmniVoice, OmniVoiceGenerationConfig, VoiceClonePrompt
 
-from .audio import decode_audio_from_base64, tensor_to_audio
+from .audio import (
+    decode_audio_from_base64,
+    decode_base64_audio_for_transcription,
+    tensor_to_audio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +266,22 @@ class OmniVoiceModel:
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             raise
+
+    def transcribe_uploaded_audio(
+        self,
+        audio_b64: str,
+        mime_type: Optional[str] = None,
+    ) -> str:
+        """Transcribe base64 audio (WAV or browser WebM/Opus, etc.) using Whisper ASR."""
+        if self._model is None:
+            raise RuntimeError("Model not loaded. Call load() first.")
+        if getattr(self._model, "_asr_pipe", None) is None:
+            raise RuntimeError(
+                "ASR model is not loaded. Start the server with OMNIVOICE_LOAD_ASR=true "
+                "(default) and ensure startup completed without errors."
+            )
+        waveform, sr = decode_base64_audio_for_transcription(audio_b64, mime_type)
+        return self._model.transcribe((waveform, sr))
 
     def supported_languages(self) -> list[str]:
         """Get list of supported language IDs."""

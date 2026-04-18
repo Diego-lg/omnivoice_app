@@ -4,6 +4,18 @@ import "./MessageInput.css";
 
 const MAX_IMAGES = 4;
 
+/**
+ * Web Speech + MediaRecorder together often yields a silent recording on Android
+ * (single-capture / concurrent-capture policy in Chromium). Desktop can usually
+ * share the mic between both.
+ */
+function canUseLiveSpeechRecognitionWhileRecording() {
+  if (typeof navigator === "undefined") return true;
+  if (/Android/i.test(navigator.userAgent)) return false;
+  if (navigator.userAgentData?.platform === "Android") return false;
+  return true;
+}
+
 function MessageInput({
   onSend,
   disabled,
@@ -270,11 +282,6 @@ function MessageInput({
             typed && spoken ? `${typed}\n\n${spoken}` : typed || spoken;
           combined = combined.trim();
           const imgs = imagesRef.current;
-          if (!combined && imgs.length === 0) {
-            // Parent API requires non-empty text when a voice blob is present
-            // (e.g. MiniMax). Mobile often has no Web Speech captions.
-            combined = "(Voice message)";
-          }
           if (combined || imgs.length > 0 || blob.size > 0) {
             onSendRef.current(combined, imgs, blob);
             setInput("");
@@ -308,9 +315,11 @@ function MessageInput({
 
       // Live dictation while recording — the LLM only sees text; without this,
       // a voice-only send would have an empty user message.
+      // Never run this concurrently with MediaRecorder on Android: it silences the clip.
       if (
-        "webkitSpeechRecognition" in window ||
-        "SpeechRecognition" in window
+        canUseLiveSpeechRecognitionWhileRecording() &&
+        ("webkitSpeechRecognition" in window ||
+          "SpeechRecognition" in window)
       ) {
         startSpeechRecognition();
       }

@@ -19,6 +19,8 @@ from .schemas import (
     ErrorResponse,
     HealthResponse,
     SpeechRequest,
+    TranscriptionRequest,
+    TranscriptionResponse,
     VoiceMode,
     VoiceProfile,
     VoiceProfileList,
@@ -85,6 +87,27 @@ async def health_check():
         device=model.device,
         sampling_rate=model.sampling_rate if model.is_loaded else None,
     )
+
+
+@app.post("/v1/audio/transcriptions", response_model=TranscriptionResponse)
+async def transcribe_audio(request: TranscriptionRequest) -> TranscriptionResponse:
+    """Transcribe a voice clip with Whisper (requires ASR loaded on the server)."""
+    model = get_model()
+    if not model.is_loaded:
+        raise HTTPException(
+            status_code=503,
+            detail="OmniVoice model is not loaded.",
+        )
+    try:
+        text = model.transcribe_uploaded_audio(
+            request.file,
+            mime_type=request.mime_type,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return TranscriptionResponse(text=text)
 
 
 @app.post("/v1/audio/speech")

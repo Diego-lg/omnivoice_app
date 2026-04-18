@@ -10,6 +10,34 @@
 const OMNIVOICE_BASE_URL = "";
 
 /**
+ * OmniVoice HTTP root (no trailing slash). Empty = same origin / Vite proxy.
+ * Set in Settings → Voice, or `VITE_OMNIVOICE_API_URL` (e.g. http://YOUR-LAN-IP:8005 for Android).
+ * @param {Record<string, unknown>|null|undefined} config
+ */
+export function getOmnivoiceBaseUrl(config) {
+  const fromConfig =
+    config &&
+    typeof config.omnivoiceBaseUrl === "string" &&
+    config.omnivoiceBaseUrl.trim();
+  if (fromConfig) return fromConfig.replace(/\/$/, "");
+  const env =
+    typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_OMNIVOICE_API_URL
+      ? String(import.meta.env.VITE_OMNIVOICE_API_URL).trim()
+      : "";
+  if (env) return env.replace(/\/$/, "");
+  return "";
+}
+
+function resolveOmnivoiceFetchUrl(path, baseUrl = OMNIVOICE_BASE_URL) {
+  const root = String(baseUrl ?? "").trim().replace(/\/$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (!root) return p;
+  return `${root}${p}`;
+}
+
+/**
  * Convert an ArrayBuffer to a Base64 string
  * @param {ArrayBuffer} buffer
  * @returns {string}
@@ -327,7 +355,7 @@ export async function textToSpeech(
 
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/audio/speech`, {
+    response = await fetch(resolveOmnivoiceFetchUrl("/v1/audio/speech", baseUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -419,20 +447,23 @@ export async function streamTextToSpeech(
 
   console.log(
     "[streamTextToSpeech] Sending streaming TTS request to:",
-    `${baseUrl}/v1/audio/speech/stream`,
+    resolveOmnivoiceFetchUrl("/v1/audio/speech/stream", baseUrl),
   );
   console.log(
     "[streamTextToSpeech] Request body:",
     JSON.stringify(requestBody, null, 2),
   );
 
-  const response = await fetch(`${baseUrl}/v1/audio/speech/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetch(
+    resolveOmnivoiceFetchUrl("/v1/audio/speech/stream", baseUrl),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
     },
-    body: JSON.stringify(requestBody),
-  });
+  );
 
   console.log(
     "[streamTextToSpeech] Response status:",
@@ -702,6 +733,76 @@ export async function speechToSpeech(
 }
 
 /**
+ * Transcribe a recorded voice clip via OmniVoice server Whisper ASR.
+ * Prefers 24kHz WAV from the browser; if decode/resample fails (some Android WebM),
+ * sends raw bytes + mime_type so the server can decode with torchaudio.
+ *
+ * @param {Blob} audioBlob
+ * @param {string} [baseUrl] - From {@link getOmnivoiceBaseUrl}; empty = same-origin / Vite proxy
+ * @returns {Promise<string>} Non-empty transcript text
+ */
+export async function transcribeVoiceBlob(
+  audioBlob,
+  baseUrl = OMNIVOICE_BASE_URL,
+) {
+  let file;
+  let mimeType =
+    audioBlob.type && audioBlob.type !== "application/octet-stream"
+      ? audioBlob.type
+      : "audio/webm";
+
+  try {
+    const wavBlob = await resampleAudio(audioBlob, 24000);
+    file = await blobToBase64(wavBlob);
+    mimeType = "audio/wav";
+  } catch (err) {
+    console.warn(
+      "[transcribeVoiceBlob] Client WAV conversion failed; sending raw to server:",
+      err?.message || err,
+    );
+    file = await blobToBase64(audioBlob);
+  }
+
+  let response;
+  try {
+    response = await fetch(
+      resolveOmnivoiceFetchUrl("/v1/audio/transcriptions", baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file, mime_type: mimeType }),
+      },
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not reach OmniVoice for transcription (${err.message}). Is the server running (e.g. port 8005)?`,
+    );
+  }
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const errJson = await response.json();
+      detail = errJson.detail || errJson.error || detail;
+    } catch {
+      try {
+        detail = (await response.text()).slice(0, 200) || detail;
+      } catch {
+        /* ignore */
+      }
+    }
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  const text = (data.text || "").trim();
+  if (!text) {
+    throw new Error("Transcription returned empty text.");
+  }
+  return text;
+}
+
+/**
  * Create a voice profile from reference audio
  *
  * @param {Blob} refAudio - Reference audio blob (24kHz WAV recommended)
@@ -735,7 +836,7 @@ export async function createVoiceProfile(
 
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/voices`, {
+    response = await fetch(resolveOmnivoiceFetchUrl("/v1/voices", baseUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -771,7 +872,7 @@ export async function createVoiceProfile(
 export async function getVoiceProfiles(baseUrl = OMNIVOICE_BASE_URL) {
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/voices`, {
+    response = await fetch(resolveOmnivoiceFetchUrl("/v1/voices", baseUrl), {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -808,12 +909,15 @@ export async function getVoiceProfiles(baseUrl = OMNIVOICE_BASE_URL) {
 export async function getVoiceProfile(id, baseUrl = OMNIVOICE_BASE_URL) {
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/voices/${id}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
+    response = await fetch(
+      resolveOmnivoiceFetchUrl(`/v1/voices/${id}`, baseUrl),
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
+    );
   } catch (err) {
     throw new Error(
       `Network error: ${err.message}. Make sure OmniVoice server is running on ${baseUrl}`,
@@ -844,12 +948,15 @@ export async function getVoiceProfile(id, baseUrl = OMNIVOICE_BASE_URL) {
 export async function deleteVoiceProfile(id, baseUrl = OMNIVOICE_BASE_URL) {
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/voices/${id}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
+    response = await fetch(
+      resolveOmnivoiceFetchUrl(`/v1/voices/${id}`, baseUrl),
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
+    );
   } catch (err) {
     throw new Error(
       `Network error: ${err.message}. Make sure OmniVoice server is running on ${baseUrl}`,
@@ -877,7 +984,7 @@ export async function deleteVoiceProfile(id, baseUrl = OMNIVOICE_BASE_URL) {
 export async function checkHealth(baseUrl = OMNIVOICE_BASE_URL) {
   let response;
   try {
-    response = await fetch(`${baseUrl}/health`, {
+    response = await fetch(resolveOmnivoiceFetchUrl("/health", baseUrl), {
       method: "GET",
     });
   } catch (err) {
@@ -902,7 +1009,7 @@ export async function checkHealth(baseUrl = OMNIVOICE_BASE_URL) {
 export async function getSupportedLanguages(baseUrl = OMNIVOICE_BASE_URL) {
   let response;
   try {
-    response = await fetch(`${baseUrl}/v1/languages`, {
+    response = await fetch(resolveOmnivoiceFetchUrl("/v1/languages", baseUrl), {
       method: "GET",
     });
   } catch (err) {

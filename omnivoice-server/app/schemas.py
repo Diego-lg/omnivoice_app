@@ -82,6 +82,25 @@ class SpeechRequest(BaseModel):
     )
 
 
+class TranscriptionRequest(BaseModel):
+    """Request to transcribe a short audio clip (OpenAI-style field name)."""
+
+    file: str = Field(
+        ...,
+        description="Base64-encoded audio: 24kHz mono WAV preferred, or WebM/Opus from browsers.",
+    )
+    mime_type: Optional[str] = Field(
+        default=None,
+        description="IANA media type of the decoded bytes (e.g. audio/webm, audio/wav).",
+    )
+
+
+class TranscriptionResponse(BaseModel):
+    """ASR result for /v1/audio/transcriptions."""
+
+    text: str = Field(..., description="Transcribed text.")
+
+
 class CreateVoiceRequest(BaseModel):
     """Request to create a voice profile from reference audio."""
 

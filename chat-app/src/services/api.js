@@ -15,4 +15,6 @@ export {
   deleteVoiceProfile,
   checkHealth,
   getSupportedLanguages,
+  transcribeVoiceBlob,
+  getOmnivoiceBaseUrl,
 } from "./omnivoice.js";

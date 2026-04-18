@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { omnivoice, VOICE_MODES } from "../services/api";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { omnivoice, VOICE_MODES, getOmnivoiceBaseUrl } from "../services/api";
 import "./VoiceSettings.css";
 
 const LANGUAGES = [
@@ -62,10 +62,15 @@ function VoiceSettings({ config, onUpdate }) {
     defaultSpeed: 1.0,
   };
 
+  const omnivoiceApiRoot = useMemo(
+    () => getOmnivoiceBaseUrl(config),
+    [config.omnivoiceBaseUrl],
+  );
+
   useEffect(() => {
     loadVoiceProfiles();
     checkServerHealth();
-  }, []);
+  }, [omnivoiceApiRoot]);
 
   const handleVoiceEnabledChange = (enabled) => {
     onUpdate({ voiceEnabled: enabled });
@@ -74,7 +79,7 @@ function VoiceSettings({ config, onUpdate }) {
   const loadVoiceProfiles = async () => {
     setLoadingProfiles(true);
     try {
-      const profiles = await omnivoice.getVoiceProfiles();
+      const profiles = await omnivoice.getVoiceProfiles(omnivoiceApiRoot);
       setVoiceProfiles(profiles);
     } catch (err) {
       console.error("Failed to load voice profiles:", err);
@@ -86,7 +91,7 @@ function VoiceSettings({ config, onUpdate }) {
   const checkServerHealth = async () => {
     setCheckingServer(true);
     try {
-      const status = await omnivoice.checkHealth();
+      const status = await omnivoice.checkHealth(omnivoiceApiRoot);
       setServerStatus(status);
     } catch (err) {
       setServerStatus({ error: err.message });
@@ -275,7 +280,7 @@ function VoiceSettings({ config, onUpdate }) {
 
   const handleDeleteProfile = async (id) => {
     try {
-      await omnivoice.deleteVoiceProfile(id);
+      await omnivoice.deleteVoiceProfile(id, omnivoiceApiRoot);
       setVoiceProfiles((prev) => prev.filter((p) => p.id !== id));
       if (config.voiceConfig?.selectedProfileId === id) {
         onUpdate({
@@ -302,6 +307,7 @@ function VoiceSettings({ config, onUpdate }) {
         name,
         null,
         config.voiceConfig?.refText || null,
+        omnivoiceApiRoot,
       );
       setVoiceProfiles((prev) => [...prev, profile]);
       setRefAudioFile(null);
@@ -332,6 +338,30 @@ function VoiceSettings({ config, onUpdate }) {
           Enable text-to-speech (TTS) for AI responses and speech-to-text (STT)
           for voice input
         </p>
+      </div>
+
+      <div className="settings-section">
+        <div className="form-group">
+          <label className="form-label" htmlFor="omnivoice-base-url">
+            OmniVoice server URL
+          </label>
+          <input
+            id="omnivoice-base-url"
+            type="url"
+            className="form-input"
+            value={config.omnivoiceBaseUrl ?? ""}
+            onChange={(e) =>
+              onUpdate({ omnivoiceBaseUrl: e.target.value.trim() || "" })
+            }
+            placeholder="Empty = same page / Vite proxy — or http://192.168.x.x:8005"
+            autoComplete="off"
+          />
+          <p className="form-hint">
+            Voice transcription and TTS call this API. From a phone, use your
+            PC&apos;s LAN IP and the port where OmniVoice listens (often 8005),
+            and allow it through the firewall.
+          </p>
+        </div>
       </div>
 
       {/* Server Status Indicator */}
