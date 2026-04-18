@@ -30,8 +30,19 @@ export function getOmnivoiceBaseUrl(config) {
   return "";
 }
 
+/** Strip trailing slashes and a trailing `/v1` so paths never become `/v1/v1/...`. */
+function normalizeOmnivoiceFetchRoot(raw) {
+  let root = String(raw ?? "").trim();
+  if (!root) return "";
+  root = root.replace(/\/+$/, "");
+  while (/\/v1$/.test(root)) {
+    root = root.replace(/\/v1$/, "").replace(/\/+$/, "");
+  }
+  return root;
+}
+
 function resolveOmnivoiceFetchUrl(path, baseUrl = OMNIVOICE_BASE_URL) {
-  const root = String(baseUrl ?? "").trim().replace(/\/$/, "");
+  const root = normalizeOmnivoiceFetchRoot(baseUrl);
   const p = path.startsWith("/") ? path : `/${path}`;
   if (!root) return p;
   return `${root}${p}`;
@@ -499,16 +510,6 @@ export async function streamTextToSpeech(
     }
   }
 
-  /** Dedicated decode graph — never the same node graph as playback scheduling. */
-  const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (decodeCtx.state === "suspended") {
-    try {
-      await decodeCtx.resume();
-    } catch {
-      /* ignore */
-    }
-  }
-
   const reader = response.body.getReader();
   console.log("[streamTextToSpeech] Reader ready, waiting for sentence chunks…");
 
@@ -530,12 +531,24 @@ export async function streamTextToSpeech(
       frameBytes.byteOffset,
       frameBytes.byteOffset + frameBytes.byteLength,
     );
+    const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
     let audioBuffer;
     try {
-      audioBuffer = await decodeCtx.decodeAudioData(copy);
+      if (decodeCtx.state === "suspended") {
+        await decodeCtx.resume().catch(() => {});
+      }
+      // Fresh context per chunk avoids Chromium decodeAudioData corruption when
+      // decoding many sequential WAV payloads on one AudioContext.
+      audioBuffer = await decodeCtx.decodeAudioData(copy.slice(0));
     } catch (err) {
       console.error("[streamTextToSpeech] Decode failed for chunk", chunkIndex, err);
       return;
+    } finally {
+      try {
+        decodeCtx.close();
+      } catch {
+        /* ignore */
+      }
     }
 
     chunkIndex++;
@@ -566,71 +579,63 @@ export async function streamTextToSpeech(
     nextStartTime = startAt + audioBuffer.duration;
   };
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-      appendBuffer(value);
+    appendBuffer(value);
 
-      while (buffer.length >= 4) {
-        const view = new DataView(buffer.buffer, buffer.byteOffset, 4);
-        const frameLen = view.getUint32(0, false);
+    while (buffer.length >= 4) {
+      const view = new DataView(buffer.buffer, buffer.byteOffset, 4);
+      const frameLen = view.getUint32(0, false);
 
-        if (frameLen === 0) {
-          console.warn("[streamTextToSpeech] Server sent error sentinel.");
-          if (ownsContext) {
-            try {
-              audioContext.close();
-            } catch {
-              /* ignore */
-            }
+      if (frameLen === 0) {
+        console.warn("[streamTextToSpeech] Server sent error sentinel.");
+        if (ownsContext) {
+          try {
+            audioContext.close();
+          } catch {
+            /* ignore */
           }
-          return { audioBlob: null, audioUrl: null };
         }
-
-        if (buffer.length < 4 + frameLen) {
-          break;
-        }
-
-        const frameBytes = buffer.slice(4, 4 + frameLen);
-        buffer = buffer.slice(4 + frameLen);
-
-        await decodeAndSchedule(frameBytes);
+        return { audioBlob: null, audioUrl: null };
       }
-    }
 
-    console.log(
-      `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
+      if (buffer.length < 4 + frameLen) {
+        break;
+      }
+
+      const frameBytes = buffer.slice(4, 4 + frameLen);
+      buffer = buffer.slice(4 + frameLen);
+
+      await decodeAndSchedule(frameBytes);
+    }
+  }
+
+  console.log(
+    `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
+  );
+
+  const combinePromise = combineAudioBuffers(collectedBuffers);
+
+  const remaining = nextStartTime - audioContext.currentTime;
+  if (remaining > 0) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, remaining * 1000 + 300),
     );
+  }
 
-    const combinePromise = combineAudioBuffers(collectedBuffers);
-
-    const remaining = nextStartTime - audioContext.currentTime;
-    if (remaining > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, remaining * 1000 + 300),
-      );
-    }
-
-    if (ownsContext) {
-      try {
-        audioContext.close();
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const audioBlob = await combinePromise;
-    const audioUrl = URL.createObjectURL(audioBlob);
-    return { audioBlob, audioUrl };
-  } finally {
+  if (ownsContext) {
     try {
-      decodeCtx.close();
+      audioContext.close();
     } catch {
       /* ignore */
     }
   }
+
+  const audioBlob = await combinePromise;
+  const audioUrl = URL.createObjectURL(audioBlob);
+  return { audioBlob, audioUrl };
 }
 
 /**

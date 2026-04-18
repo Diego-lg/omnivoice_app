@@ -353,7 +353,7 @@ function VoiceSettings({ config, onUpdate }) {
             onChange={(e) =>
               onUpdate({ omnivoiceBaseUrl: e.target.value.trim() || "" })
             }
-            placeholder="Empty = same page / Vite proxy — or http://192.168.x.x:8005"
+            placeholder="http://192.168.x.x:8005 (scheme + host + port only, no /v1)"
             autoComplete="off"
           />
           <p className="form-hint">
