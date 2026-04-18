@@ -7,6 +7,7 @@ import SettingsModal from "./components/SettingsModal";
 import PersonaEditor from "./components/PersonaEditor";
 import ChatHistory from "./components/ChatHistory";
 import { minimax, omnivoice } from "./services/api";
+import { stripEmojis } from "./utils/text";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -437,7 +438,7 @@ function App() {
         }
 
         for await (const chunk of stream) {
-          assistantContent += chunk;
+          assistantContent += stripEmojis(chunk);
           setSessions((prev) =>
             prev.map((s) => {
               if (s.id !== currentSessionId) return s;
