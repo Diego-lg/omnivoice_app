@@ -63,21 +63,25 @@ async function blobToBase64(blob) {
 async function resampleAudio(blob, targetSampleRate = 24000) {
   const audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const arrayBuffer = await blob.arrayBuffer();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
 
+  const frameCount = Math.max(
+    1,
+    Math.ceil(audioBuffer.duration * targetSampleRate),
+  );
   const offlineContext = new OfflineAudioContext(
     audioBuffer.numberOfChannels,
-    audioBuffer.duration * targetSampleRate,
+    frameCount,
     targetSampleRate,
   );
-  offlineContext.renderBuffer(audioBuffer);
+  const source = offlineContext.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(offlineContext.destination);
+  source.start(0);
 
-  const renderedBuffer = await offlineContext.render();
-
-  // Convert to WAV
-  const wavBlob = audioBufferToWav(renderedBuffer);
+  const renderedBuffer = await offlineContext.startRendering();
   audioContext.close();
-  return wavBlob;
+  return audioBufferToWav(renderedBuffer);
 }
 
 /**
@@ -142,6 +146,26 @@ function audioBufferToWav(buffer) {
 }
 
 /**
+ * Mix down to mono so sentence chunks with different channel layouts stitch
+ * correctly in OfflineAudioContext.
+ */
+function toMonoAudioBuffer(buffer) {
+  if (buffer.numberOfChannels === 1) return buffer;
+  const { length, sampleRate, numberOfChannels } = buffer;
+  const oac = new OfflineAudioContext(1, length, sampleRate);
+  const mono = oac.createBuffer(1, length, sampleRate);
+  const out = mono.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    let sum = 0;
+    for (let c = 0; c < numberOfChannels; c++) {
+      sum += buffer.getChannelData(c)[i];
+    }
+    out[i] = sum / numberOfChannels;
+  }
+  return mono;
+}
+
+/**
  * Check audio sample rate using Web Audio API
  * Returns the sample rate or null if unable to determine
  * @param {Blob} blob
@@ -153,7 +177,7 @@ async function getAudioSampleRate(blob) {
       window.AudioContext || window.webkitAudioContext
     )();
     const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
     const sampleRate = audioBuffer.sampleRate;
     audioContext.close();
     return sampleRate;
@@ -444,18 +468,21 @@ export async function streamTextToSpeech(
     }
   }
 
+  /** Dedicated decode graph — never the same node graph as playback scheduling. */
+  const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (decodeCtx.state === "suspended") {
+    try {
+      await decodeCtx.resume();
+    } catch {
+      /* ignore */
+    }
+  }
+
   const reader = response.body.getReader();
   console.log("[streamTextToSpeech] Reader ready, waiting for sentence chunks…");
 
-  // Accumulation buffer: network frames may be split or merged by TCP/HTTP.
-  // We maintain a running byte buffer and extract complete length-prefixed
-  // frames from it rather than assuming one read() === one frame.
   let buffer = new Uint8Array(0);
 
-  /**
-   * Append newly received bytes to the accumulation buffer.
-   * @param {Uint8Array} incoming
-   */
   const appendBuffer = (incoming) => {
     const merged = new Uint8Array(buffer.length + incoming.length);
     merged.set(buffer, 0);
@@ -463,29 +490,18 @@ export async function streamTextToSpeech(
     buffer = merged;
   };
 
-  // Schedule chunks to play back-to-back using AudioContext timestamps.
-  // nextStartTime tracks when the next chunk should begin so there are no
-  // gaps or overlaps regardless of how long decoding takes.
   let nextStartTime = audioContext.currentTime;
   let chunkIndex = 0;
-
-  // Collect AudioBuffers so we can stitch them into a replay blob at the end.
   const collectedBuffers = [];
 
-  /**
-   * Decode one complete WAV frame, schedule it for sequential playback,
-   * and store it in collectedBuffers for later replay export.
-   * @param {Uint8Array} frameBytes  Raw WAV bytes for this sentence.
-   */
   const decodeAndSchedule = async (frameBytes) => {
-    // decodeAudioData requires a detached ArrayBuffer; copy to a fresh one.
     const copy = frameBytes.buffer.slice(
       frameBytes.byteOffset,
       frameBytes.byteOffset + frameBytes.byteLength,
     );
     let audioBuffer;
     try {
-      audioBuffer = await audioContext.decodeAudioData(copy);
+      audioBuffer = await decodeCtx.decodeAudioData(copy);
     } catch (err) {
       console.error("[streamTextToSpeech] Decode failed for chunk", chunkIndex, err);
       return;
@@ -497,14 +513,20 @@ export async function streamTextToSpeech(
     );
 
     collectedBuffers.push(audioBuffer);
-
     if (onChunk) {
       onChunk(audioBuffer);
     }
 
-    // Schedule the chunk to start right after the previous one ends.
-    // If the previous chunk has already finished (e.g. first chunk after a
-    // network delay), start immediately so there is no audible gap.
+    // After async LLM + network work the shared context is often "suspended"
+    // again — scheduled buffers are silent until we resume.
+    if (audioContext.state !== "running") {
+      try {
+        await audioContext.resume();
+      } catch {
+        console.warn("[streamTextToSpeech] Could not resume playback context.");
+      }
+    }
+
     const startAt = Math.max(nextStartTime, audioContext.currentTime);
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
@@ -513,62 +535,71 @@ export async function streamTextToSpeech(
     nextStartTime = startAt + audioBuffer.duration;
   };
 
-  // Read the response stream and process complete frames as they arrive.
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    appendBuffer(value);
+      appendBuffer(value);
 
-    // Drain all complete frames from the buffer.
-    while (buffer.length >= 4) {
-      const view = new DataView(buffer.buffer, buffer.byteOffset, 4);
-      const frameLen = view.getUint32(0, false); // big-endian
+      while (buffer.length >= 4) {
+        const view = new DataView(buffer.buffer, buffer.byteOffset, 4);
+        const frameLen = view.getUint32(0, false);
 
-      if (frameLen === 0) {
-        // Server sent an error sentinel — abort playback.
-        console.warn("[streamTextToSpeech] Server sent error sentinel.");
+        if (frameLen === 0) {
+          console.warn("[streamTextToSpeech] Server sent error sentinel.");
+          if (ownsContext) {
+            try {
+              audioContext.close();
+            } catch {
+              /* ignore */
+            }
+          }
+          return { audioBlob: null, audioUrl: null };
+        }
+
+        if (buffer.length < 4 + frameLen) {
+          break;
+        }
+
+        const frameBytes = buffer.slice(4, 4 + frameLen);
+        buffer = buffer.slice(4 + frameLen);
+
+        await decodeAndSchedule(frameBytes);
+      }
+    }
+
+    console.log(
+      `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
+    );
+
+    const combinePromise = combineAudioBuffers(collectedBuffers);
+
+    const remaining = nextStartTime - audioContext.currentTime;
+    if (remaining > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, remaining * 1000 + 300),
+      );
+    }
+
+    if (ownsContext) {
+      try {
         audioContext.close();
-        return { audioBlob: null, audioUrl: null };
+      } catch {
+        /* ignore */
       }
+    }
 
-      if (buffer.length < 4 + frameLen) {
-        break; // Frame not fully received yet — wait for more data.
-      }
-
-      // Extract the complete frame and trim the buffer.
-      const frameBytes = buffer.slice(4, 4 + frameLen);
-      buffer = buffer.slice(4 + frameLen);
-
-      await decodeAndSchedule(frameBytes);
+    const audioBlob = await combinePromise;
+    const audioUrl = URL.createObjectURL(audioBlob);
+    return { audioBlob, audioUrl };
+  } finally {
+    try {
+      decodeCtx.close();
+    } catch {
+      /* ignore */
     }
   }
-
-  console.log(
-    `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
-  );
-
-  // Combine all collected chunks into a single WAV blob in parallel with
-  // the remaining scheduled playback time, so there is minimal extra wait.
-  const combinePromise = combineAudioBuffers(collectedBuffers);
-
-  // Wait for all scheduled audio to finish playing.
-  // Use the AudioContext's own timeline: remaining = scheduled end - now.
-  // This is wall-clock-accurate as long as the context is running (which it
-  // is, because we resumed it above before scheduling anything).
-  const remaining = nextStartTime - audioContext.currentTime;
-  if (remaining > 0) {
-    await new Promise((resolve) => setTimeout(resolve, remaining * 1000 + 300));
-  }
-
-  // Only close a context we created ourselves; leave the shared one open.
-  if (ownsContext) {
-    audioContext.close();
-  }
-
-  const audioBlob = await combinePromise;
-  const audioUrl = URL.createObjectURL(audioBlob);
-  return { audioBlob, audioUrl };
 }
 
 /**
@@ -579,20 +610,25 @@ export async function streamTextToSpeech(
  */
 async function combineAudioBuffers(buffers) {
   if (buffers.length === 0) return new Blob([], { type: "audio/wav" });
-  if (buffers.length === 1) return audioBufferToWav(buffers[0]);
+  const monoBuffers = buffers.map(toMonoAudioBuffer);
+  if (monoBuffers.length === 1) return audioBufferToWav(monoBuffers[0]);
 
-  const sampleRate = buffers[0].sampleRate;
-  const numChannels = buffers[0].numberOfChannels;
-  const totalLength = buffers.reduce((sum, b) => sum + b.length, 0);
+  const sampleRate = monoBuffers[0].sampleRate;
+  const totalLength = monoBuffers.reduce((sum, b) => sum + b.length, 0);
+  const offlineCtx = new OfflineAudioContext(1, totalLength, sampleRate);
 
-  const offlineCtx = new OfflineAudioContext(numChannels, totalLength, sampleRate);
-  let offsetFrames = 0;
-  for (const buf of buffers) {
+  let offsetSec = 0;
+  for (const buf of monoBuffers) {
+    if (buf.sampleRate !== sampleRate) {
+      console.warn(
+        "[combineAudioBuffers] Sample rate mismatch; replay may be corrupted",
+      );
+    }
     const source = offlineCtx.createBufferSource();
     source.buffer = buf;
     source.connect(offlineCtx.destination);
-    source.start(offsetFrames / sampleRate);
-    offsetFrames += buf.length;
+    source.start(offsetSec);
+    offsetSec += buf.duration;
   }
 
   const rendered = await offlineCtx.startRendering();
@@ -898,6 +934,6 @@ export const DEFAULT_GENERATION_CONFIG = {
   language: null,
   speed: 1.0,
   duration: null,
-  numStep: 32,
-  guidanceScale: 2.0,
+  numStep: 48,
+  guidanceScale: 2.25,
 };

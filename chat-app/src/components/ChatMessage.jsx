@@ -53,6 +53,8 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   const [showTranscript, setShowTranscript] = useState(false);
   const audioRef = useRef(null);
   const volumeRef = useRef(null);
+  /** Stable object URL when the message only has `audioBlob` (user mic clip). */
+  const [stableBlobUrl, setStableBlobUrl] = useState(null);
 
   const formatTime = (date) => {
     if (!date) return "";
@@ -61,17 +63,63 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   };
 
   const formatAudioTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return "0:00";
+    if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const getAudioUrl = () => {
-    if (message.audioUrl) return message.audioUrl;
-    if (message.audioBlob) return URL.createObjectURL(message.audioBlob);
-    return null;
-  };
+  // Prefer the URL the parent already created (including blob:) so the <audio>
+  // src never changes on every React render — recreating blob URLs each render
+  // reloads the decoder and typically sounds like noise.
+  const audioSrc = message.audioUrl || stableBlobUrl || null;
+
+  useEffect(() => {
+    if (message.audioUrl) {
+      setStableBlobUrl(null);
+      return undefined;
+    }
+    if (!(message.audioBlob instanceof Blob)) {
+      setStableBlobUrl(null);
+      return undefined;
+    }
+    const url = URL.createObjectURL(message.audioBlob);
+    setStableBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [message.audioUrl, message.audioBlob, message.id]);
+
+  useEffect(() => {
+    setAudioProgress(0);
+    setAudioDuration(0);
+    setIsPlaying(false);
+  }, [message.id]);
+
+  // MediaRecorder WebM often reports duration = Infinity on <audio>. Decode once
+  // via Web Audio to get the real length without seeking (which can glitch Opus).
+  useEffect(() => {
+    if (!(message.audioBlob instanceof Blob)) return undefined;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return undefined;
+    const ac = new AC();
+    let cancelled = false;
+    message.audioBlob
+      .arrayBuffer()
+      .then((ab) => ac.decodeAudioData(ab.slice(0)))
+      .then((buf) => {
+        if (!cancelled && buf?.duration > 0) setAudioDuration(buf.duration);
+      })
+      .catch(() => {})
+      .finally(() => {
+        try {
+          ac.close();
+        } catch {
+          /* ignore */
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [message.audioBlob, message.id]);
 
   const togglePlayPause = useCallback(() => {
     if (!audioRef.current) return;
@@ -92,11 +140,11 @@ const ChatMessage = React.forwardRef(function ChatMessage(
 
   const handleAudioLoadedMetadata = useCallback(() => {
     if (!audioRef.current) return;
-    setAudioDuration(audioRef.current.duration);
-    if (volumeRef.current) {
-      audioRef.current.volume = volume;
+    audioRef.current.volume = volume;
+    const d = audioRef.current.duration;
+    if (isFinite(d) && d > 0) {
+      setAudioDuration(d);
     }
-    // Auto-play if enabled
     if (autoPlay && !isPlaying) {
       audioRef.current
         .play()
@@ -111,7 +159,7 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   }, []);
 
   const handleProgressBarClick = (e) => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !audioDuration || audioDuration <= 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = Math.max(
       0,
@@ -138,24 +186,14 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   };
 
   const downloadAudio = () => {
-    const url = getAudioUrl();
-    if (!url) return;
+    if (!audioSrc) return;
     const a = document.createElement("a");
-    a.href = url;
+    a.href = audioSrc;
     a.download = `voice-response-${Date.now()}.webm`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
-
-  // Cleanup blob URL on unmount
-  useEffect(() => {
-    return () => {
-      if (message.audioBlob && message.audioUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(message.audioUrl);
-      }
-    };
-  }, [message.audioBlob, message.audioUrl]);
 
   return (
     <div
@@ -241,8 +279,9 @@ const ChatMessage = React.forwardRef(function ChatMessage(
             {hasAudio && !isStreamingAudio && (
               <div className="audio-player">
                 <audio
+                  key={message.id}
                   ref={audioRef}
-                  src={getAudioUrl()}
+                  src={audioSrc || undefined}
                   onTimeUpdate={handleAudioTimeUpdate}
                   onLoadedMetadata={handleAudioLoadedMetadata}
                   onEnded={handleAudioEnded}
@@ -282,7 +321,7 @@ const ChatMessage = React.forwardRef(function ChatMessage(
                       <div
                         className="audio-progress-fill"
                         style={{
-                          width: `${(audioProgress / audioDuration) * 100}%`,
+                          width: `${audioDuration > 0 ? (audioProgress / audioDuration) * 100 : 0}%`,
                         }}
                       />
                     </div>

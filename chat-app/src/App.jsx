@@ -7,7 +7,7 @@ import SettingsModal from "./components/SettingsModal";
 import PersonaEditor from "./components/PersonaEditor";
 import ChatHistory from "./components/ChatHistory";
 import { minimax, omnivoice } from "./services/api";
-import { stripEmojis } from "./utils/text";
+import { stripEmojis, prepareTextForTts } from "./utils/text";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -27,7 +27,8 @@ const DEFAULT_CONFIG = {
   voiceGenerationConfig: {
     language: null,
     speed: 1.0,
-    numStep: 32,
+    numStep: 48,
+    guidanceScale: 2.25,
   },
   sttConfig: {
     language: "en-US",
@@ -87,7 +88,13 @@ function loadSessions() {
 
 function saveSessions(sessions) {
   try {
-    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
+    // Strip ephemeral audio data before serializing — Blobs and blob URLs
+    // don't survive JSON round-trips or page reloads.
+    const serializable = sessions.map((s) => ({
+      ...s,
+      messages: s.messages.map(({ audioBlob, audioUrl, isStreamingAudio, ...msg }) => msg),
+    }));
+    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(serializable));
   } catch {}
 }
 
@@ -332,6 +339,15 @@ function App() {
       if ((!content.trim() && images.length === 0 && !voiceBlob) || isLoading)
         return;
 
+      const trimmed = content.trim();
+      // The LLM API is text-only; the mic clip is for playback / TTS only.
+      if (voiceBlob && !trimmed) {
+        setError(
+          "Your voice note has no text for the model. Speak while recording so live captions appear (Chrome or Edge), or type a message before sending.",
+        );
+        return;
+      }
+
       // Create or reuse a shared AudioContext while we're inside a user gesture.
       // Browsers require a gesture to allow audio playback; creating the context
       // here (before any async work) ensures it starts in "running" state.
@@ -355,7 +371,7 @@ function App() {
       const userMessage = {
         id: Date.now(),
         role: "user",
-        content: content.trim(),
+        content: trimmed,
         images: images,
         timestamp: new Date().toISOString(),
         audioBlob: voiceBlob || null,
@@ -414,7 +430,7 @@ function App() {
           role: m.role,
           content: m.content,
         })),
-        { role: "user", content: content.trim() },
+        { role: "user", content: trimmed },
       ];
 
       try {
@@ -476,9 +492,11 @@ function App() {
         // Capture identifiers before any async gap so closures are stable.
         const ttsSessionId = currentSessionId;
         const ttsMsgId = assistantMessageId;
-        const ttsContent = assistantContent;
+        const ttsContent =
+          prepareTextForTts(assistantContent).trim() ||
+          stripEmojis(assistantContent).replace(/\s+/g, " ").trim();
 
-        if (voiceEnabled && ttsContent.trim()) {
+        if (voiceEnabled && ttsContent) {
           const ttsOptions = {
             voice: config.voiceMode || "auto",
             voiceConfig: config.voiceConfig || {},
@@ -542,8 +560,6 @@ function App() {
           };
 
           if (voiceBlob) {
-            // Speech-to-speech path: keep existing blocking behaviour since
-            // it needs to transcribe the mic recording first anyway.
             omnivoice
               .speechToSpeech(voiceBlob, ttsContent, ttsOptions)
               .then((audioResult) => {
@@ -567,11 +583,11 @@ function App() {
                   });
               });
           } else {
-            // Normal text TTS — stream sentence-by-sentence so playback
-            // starts immediately without waiting for the full audio.
             omnivoice
               .streamTextToSpeech(ttsContent, ttsOptions)
-              .then(({ audioBlob, audioUrl }) => attachAudio(audioBlob, audioUrl))
+              .then(({ audioBlob, audioUrl }) =>
+                attachAudio(audioBlob, audioUrl),
+              )
               .catch((err) => {
                 console.error("Streaming TTS failed:", err);
                 clearStreamingAudio();

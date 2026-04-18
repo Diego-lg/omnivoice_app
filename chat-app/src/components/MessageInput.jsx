@@ -14,22 +14,97 @@ function MessageInput({ onSend, disabled, sttConfig }) {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const mediaStreamRef = useRef(null);
   const chunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
   const previewAudioRef = useRef(null);
   const recognitionRef = useRef(null);
+  const [previewSrc, setPreviewSrc] = useState(null);
+  /** Live captions from the mic while recording (Web Speech API) — sent to the LLM with the clip. */
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const voiceTranscriptRef = useRef("");
+  /** True between MediaRecorder.start and .stop — used to restart STT if it ends mid-take. */
+  const recordingActiveRef = useRef(false);
+
+  const stopSpeechRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+      recognitionRef.current = null;
+    }
+  }, []);
+
+  /**
+   * @param {{ discardPartialRecording?: boolean }} opts
+   * If discardPartialRecording, the in-progress take is aborted (no new blob)
+   * — used when the user sends while the mic is still open.
+   */
+  const stopRecording = useCallback(
+    (opts = {}) => {
+      const { discardPartialRecording = false } = opts;
+      const mr = mediaRecorderRef.current;
+      if (!mr || (mr.state !== "recording" && mr.state !== "paused")) return;
+
+      recordingActiveRef.current = false;
+
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
+      stopSpeechRecognition();
+
+      if (discardPartialRecording) {
+        mr.onstop = () => {
+          mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+          mediaStreamRef.current = null;
+        };
+      }
+
+      try {
+        mr.stop();
+      } catch {
+        /* ignore */
+      }
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    },
+    [stopSpeechRecognition],
+  );
 
   const handleSubmit = useCallback(() => {
-    if ((input.trim() || images.length > 0 || recordedBlob) && !disabled) {
-      onSend(input, images, recordedBlob);
-      setInput("");
-      setImages([]);
-      setRecordedBlob(null);
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
+    const typed = input.trim();
+    const spoken = (voiceTranscriptRef.current || voiceTranscript).trim();
+    const combined =
+      typed && spoken ? `${typed}\n\n${spoken}` : typed || spoken;
+    if ((!combined && images.length === 0 && !recordedBlob) || disabled) return;
+
+    const mr = mediaRecorderRef.current;
+    if (mr && (mr.state === "recording" || mr.state === "paused")) {
+      stopRecording({ discardPartialRecording: true });
     }
-  }, [input, images, recordedBlob, disabled, onSend]);
+
+    onSend(combined, images, recordedBlob);
+    setInput("");
+    setVoiceTranscript("");
+    voiceTranscriptRef.current = "";
+    setImages([]);
+    setRecordedBlob(null);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  }, [
+    input,
+    voiceTranscript,
+    images,
+    recordedBlob,
+    disabled,
+    onSend,
+    stopRecording,
+  ]);
 
   const handleKeyDown = useCallback(
     (e) => {
@@ -118,35 +193,56 @@ function MessageInput({ onSend, disabled, sttConfig }) {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+
+      // Pick the best MIME type the browser actually supports
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ].find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+
+      const mediaRecorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : {},
+      );
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           chunksRef.current.push(e.data);
         }
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // Use the recorder's actual mimeType so the blob format always matches
+        const usedMime = mediaRecorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: usedMime });
         setRecordedBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
       };
 
-      mediaRecorder.start();
+      // 100 ms timeslice: ensures ondataavailable fires regularly so no data is lost
+      mediaRecorder.start(100);
+      recordingActiveRef.current = true;
       setIsRecording(true);
       setRecordingDuration(0);
+      setVoiceTranscript("");
+      voiceTranscriptRef.current = "";
 
       // Start recording timer
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
 
-      // Start speech recognition if available and configured
+      // Live dictation while recording — the LLM only sees text; without this,
+      // a voice-only send would have an empty user message.
       if (
-        sttConfig?.continuous &&
-        ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
+        "webkitSpeechRecognition" in window ||
+        "SpeechRecognition" in window
       ) {
         startSpeechRecognition();
       }
@@ -160,43 +256,45 @@ function MessageInput({ onSend, disabled, sttConfig }) {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
-    recognitionRef.current = new SpeechRecognition();
-    recognitionRef.current.lang = sttConfig?.language || "en-US";
-    recognitionRef.current.continuous = sttConfig?.continuous || false;
-    recognitionRef.current.interimResults = true;
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = sttConfig?.language || "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
 
-    recognitionRef.current.onresult = (event) => {
+    recognition.onresult = (event) => {
       let transcript = "";
       for (let i = 0; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
       }
-      setInput((prev) => prev + transcript);
+      voiceTranscriptRef.current = transcript;
+      setVoiceTranscript(transcript);
     };
 
-    recognitionRef.current.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
-    };
-
-    recognitionRef.current.start();
-  };
-
-  const stopSpeechRecognition = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      stopSpeechRecognition();
-
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && event.error !== "no-speech") {
+        console.warn("Speech recognition:", event.error);
       }
+    };
+
+    recognition.onend = () => {
+      if (!recordingActiveRef.current) return;
+      setTimeout(() => {
+        if (!recordingActiveRef.current) return;
+        const rec = recognitionRef.current;
+        if (!rec) return;
+        try {
+          rec.start();
+        } catch {
+          /* already started or mic released */
+        }
+      }, 50);
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("Could not start speech recognition:", e);
     }
   };
 
@@ -214,6 +312,8 @@ function MessageInput({ onSend, disabled, sttConfig }) {
     }
     setRecordedBlob(null);
     setIsPlayingPreview(false);
+    setVoiceTranscript("");
+    voiceTranscriptRef.current = "";
   };
 
   const togglePreviewPlayback = () => {
@@ -231,6 +331,18 @@ function MessageInput({ onSend, disabled, sttConfig }) {
   const handlePreviewEnded = () => {
     setIsPlayingPreview(false);
   };
+
+  // One stable blob URL for preview — inline createObjectURL on every render
+  // thrashes the <audio> element and sounds like digital noise.
+  useEffect(() => {
+    if (!recordedBlob) {
+      setPreviewSrc(null);
+      return undefined;
+    }
+    const url = URL.createObjectURL(recordedBlob);
+    setPreviewSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [recordedBlob]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -250,8 +362,11 @@ function MessageInput({ onSend, disabled, sttConfig }) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const canSend =
-    (input.trim().length > 0 || images.length > 0 || recordedBlob) && !disabled;
+  const typed = input.trim();
+  const spoken = voiceTranscript.trim();
+  const hasTextForModel = typed.length > 0 || spoken.length > 0;
+  // MiniMax only receives text — a voice clip alone is not enough.
+  const canSend = !disabled && (images.length > 0 || hasTextForModel);
 
   // Calculate character and token counts
   const charCount = input.length;
@@ -293,12 +408,17 @@ function MessageInput({ onSend, disabled, sttConfig }) {
           ))}
         </div>
       )}
+      {voiceTranscript && isRecording && (
+        <div className="voice-transcript-preview" aria-live="polite">
+          {voiceTranscript}
+        </div>
+      )}
       {recordedBlob && (
         <div className="audio-preview-container">
           <div className="audio-preview">
             <audio
               ref={previewAudioRef}
-              src={URL.createObjectURL(recordedBlob)}
+              src={previewSrc || undefined}
               onEnded={handlePreviewEnded}
             />
             <button
@@ -418,7 +538,11 @@ function MessageInput({ onSend, disabled, sttConfig }) {
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={isRecording ? "Recording..." : "Type your message..."}
+          placeholder={
+            isRecording
+              ? "Optional: type while you speak, or rely on live captions…"
+              : "Type your message..."
+          }
           rows={1}
           disabled={disabled}
         />
@@ -446,7 +570,8 @@ function MessageInput({ onSend, disabled, sttConfig }) {
         {isRecording ? (
           <span className="recording-hint">
             <span className="recording-pulse"></span>
-            Recording... Click microphone to stop
+            Recording — click mic to stop. Your speech is captioned for the
+            model (Chrome / Edge).
           </span>
         ) : (
           "Press Enter to send, Shift+Enter for new line"

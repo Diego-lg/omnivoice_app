@@ -49,7 +49,8 @@ function VoiceSettings({ config, onUpdate }) {
   const generationConfig = config.voiceGenerationConfig || {
     language: null,
     speed: 1.0,
-    numStep: 32,
+    numStep: 48,
+    guidanceScale: 2.25,
   };
   const sttConfig = config.sttConfig || {
     language: "en-US",
@@ -872,28 +873,29 @@ function VoiceSettings({ config, onUpdate }) {
             </div>
             <div className="form-group">
               <label className="form-label">
-                Quality (Steps): {generationConfig.numStep || 32}
+                Quality (Steps): {generationConfig.numStep ?? 48}
               </label>
               <input
                 type="range"
                 className="form-slider"
                 min="16"
-                max="32"
+                max="64"
                 step="1"
-                value={generationConfig.numStep || 32}
+                value={generationConfig.numStep ?? 48}
                 onChange={(e) =>
                   handleGenerationConfigChange(
                     "numStep",
-                    parseInt(e.target.value),
+                    parseInt(e.target.value, 10),
                   )
                 }
               />
               <div className="slider-labels">
                 <span>16 (Fast)</span>
-                <span>32 (High Quality)</span>
+                <span>64 (Best)</span>
               </div>
               <p className="form-hint">
-                Higher steps produce better quality but take longer to generate
+                Higher steps improve clarity; replies are cleaned for speech
+                (markdown stripped before synthesis).
               </p>
             </div>
           </div>
