@@ -8,7 +8,6 @@ function ProviderSelector({ value, onChange }) {
         onChange={(e) => onChange(e.target.value)}
         className="provider-select"
       >
-        <option value="ollama">Ollama (Local)</option>
         <option value="minimax">MiniMax API</option>
       </select>
       <div className="status-indicator">

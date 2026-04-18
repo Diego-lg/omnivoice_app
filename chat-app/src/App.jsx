@@ -6,7 +6,7 @@ import SearchOverlay from "./components/SearchOverlay";
 import SettingsModal from "./components/SettingsModal";
 import PersonaEditor from "./components/PersonaEditor";
 import ChatHistory from "./components/ChatHistory";
-import { minimax, ollama, omnivoice } from "./services/api";
+import { minimax, omnivoice } from "./services/api";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -17,11 +17,9 @@ const PERSONAS_STORAGE_KEY = "omnivoice_chat_personas";
 const SELECTED_PERSONA_KEY = "omnivoice_chat_selected_persona";
 
 const DEFAULT_CONFIG = {
-  provider: "ollama",
+  provider: "minimax",
   minimaxApiKey: import.meta.env.VITE_MINIMAX_API_KEY || "",
   minimaxModel: "M2-her",
-  ollamaBaseUrl: "http://localhost:11434",
-  ollamaModel: "llama3.2",
   voiceEnabled: false,
   voiceMode: "auto",
   voiceConfig: {},
@@ -403,11 +401,7 @@ function App() {
             config.minimaxModel,
           );
         } else {
-          stream = ollama.streamOllamaResponse(
-            chatHistory,
-            config.ollamaBaseUrl,
-            config.ollamaModel,
-          );
+          throw new Error("Invalid provider configured.");
         }
 
         for await (const chunk of stream) {

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ollama, MINIMAX_MODELS } from "../services/api";
+import { useState } from "react";
+import { MINIMAX_MODELS } from "../services/api";
 import VoiceSettings from "./VoiceSettings";
 import "./SettingsModal.css";
 
@@ -11,30 +11,7 @@ const TABS = {
 
 function SettingsModal({ config, onUpdate, onClose }) {
   const [localConfig, setLocalConfig] = useState(config);
-  const [models, setModels] = useState([]);
-  const [loadingModels, setLoadingModels] = useState(false);
   const [activeTab, setActiveTab] = useState(TABS.PROVIDER);
-
-  useEffect(() => {
-    if (localConfig.provider === "ollama") {
-      fetchModels();
-    }
-  }, [localConfig.provider, localConfig.ollamaBaseUrl]);
-
-  const fetchModels = async () => {
-    setLoadingModels(true);
-    const fetchedModels = await ollama.fetchOllamaModels(
-      localConfig.ollamaBaseUrl,
-    );
-    setModels(fetchedModels);
-    if (
-      fetchedModels.length > 0 &&
-      !fetchedModels.includes(localConfig.ollamaModel)
-    ) {
-      onUpdate({ ollamaModel: fetchedModels[0] });
-    }
-    setLoadingModels(false);
-  };
 
   const handleChange = (field, value) => {
     setLocalConfig((prev) => ({ ...prev, [field]: value }));
@@ -212,52 +189,7 @@ function SettingsModal({ config, onUpdate, onClose }) {
                     Configure voice settings in the <strong>Voice</strong> tab.
                   </p>
                 </div>
-              ) : (
-                <div className="settings-section">
-                  <h3 className="section-title">Ollama Configuration</h3>
-                  <div className="form-group">
-                    <label className="form-label">Base URL</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={localConfig.ollamaBaseUrl}
-                      onChange={(e) =>
-                        handleChange("ollamaBaseUrl", e.target.value)
-                      }
-                      placeholder="http://localhost:11434"
-                    />
-                    <p className="form-hint">The URL where Ollama is running</p>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Model</label>
-                    {loadingModels ? (
-                      <div className="model-loading">Loading models...</div>
-                    ) : models.length > 0 ? (
-                      <select
-                        className="form-select"
-                        value={localConfig.ollamaModel}
-                        onChange={(e) =>
-                          handleChange("ollamaModel", e.target.value)
-                        }
-                      >
-                        {models.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="model-empty">
-                        <p>No models found</p>
-                        <p className="form-hint">
-                          Make sure Ollama is running with:{" "}
-                          <code>ollama serve</code>
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              ) : null}
             </>
           )}
 

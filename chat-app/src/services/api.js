@@ -1,8 +1,7 @@
 import * as minimax from "./minimax.js";
-import * as ollama from "./ollama.js";
 import * as omnivoice from "./omnivoice.js";
 
-export { minimax, ollama, omnivoice };
+export { minimax, omnivoice };
 export { MINIMAX_MODELS } from "./minimax.js";
 export {
   VOICE_MODES,

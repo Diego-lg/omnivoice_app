@@ -4,7 +4,7 @@
 
 - **Project Name**: OmniVoice Chat
 - **Type**: React Web Application
-- **Core Functionality**: A minimalist chat interface that connects to AI backends (MiniMax API or Ollama) for conversational responses
+- **Core Functionality**: A minimalist chat interface that connects to AI backends (MiniMax API) for conversational responses
 - **Target Users**: Developers and users seeking a clean, distraction-free AI chat interface
 
 ## Technical Stack
@@ -115,7 +115,7 @@
 
 ### 5. ProviderSelector Component
 
-- Dropdown with options: "MiniMax API", "Ollama (Local)"
+- Dropdown with options: "MiniMax API"
 - Shows connection status indicator (dot: green=connected, yellow=connecting, red=error)
 - Settings modal for API key/endpoint configuration
 
@@ -263,12 +263,6 @@
    - Request body: `{ model, messages: [{role, content}] }`
    - Stream responses for real-time display
 
-   **Ollama API**:
-   - Endpoint: `{BASE_URL}/api/chat`
-   - Headers: `Content-Type: application/json`
-   - Request body: `{ model: "{selected_model}", messages: [{role, content}], stream: true }`
-   - SSE streaming for responses
-
 4. **Error Handling**
    - Network errors: Display retry option
    - API errors: Show error message in chat
@@ -388,8 +382,7 @@ chat-app/
 │   │   └── personas.js
 │   └── services/
 │       ├── api.js
-│       ├── minimax.js
-│       └── ollama.js
+│       └── minimax.js
 ```
 
 ## Acceptance Criteria
@@ -399,7 +392,7 @@ chat-app/
 1. ✅ Application renders with black/white theme
 2. ✅ User can type and send messages
 3. ✅ Messages display with correct alignment (user right, AI left)
-4. ✅ Provider dropdown switches between MiniMax/Ollama
+4. ✅ Provider dropdown switches between MiniMax
 5. ✅ Settings modal allows API key/URL configuration
 6. ✅ Settings persist across page reloads (localStorage)
 7. ✅ AI responses stream in real-time
