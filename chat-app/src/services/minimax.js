@@ -146,32 +146,14 @@ export async function* streamMinimaxResponse(
     }
   }
 
-  // Parse SSE stream
+  // Parse SSE stream - collect all content from every chunk then yield once
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
 
-  // Track the full accumulated text we've already yielded
-  // This handles MiniMax sending accumulated text in each chunk
-  let accumulatedYieldedText = "";
-
-  // Use TextEncoder to get proper byte lengths for UTF-8
-  // This ensures correct slicing for non-ASCII characters
-  function getByteLength(str) {
-    return new TextEncoder().encode(str).length;
-  }
-
-  function sliceByBytes(str, byteLength) {
-    const encoder = new TextEncoder();
-    let result = "";
-    let byteCount = 0;
-    for (const char of str) {
-      const charBytes = encoder.encode(char).length;
-      if (byteCount + charBytes > byteLength) break;
-      result += char;
-      byteCount += charBytes;
-    }
-    return result;
-  }
+  // MiniMax choice.text is cumulative; track the last seen value to get the full text
+  let lastChoiceText = "";
+  // delta.content chunks are incremental; accumulate them
+  let deltaContent = "";
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -181,56 +163,17 @@ export async function* streamMinimaxResponse(
       data = data.slice(6);
     }
 
-    if (data === "[DONE]") {
-      console.log("[MiniMax] Received [DONE]");
-      return;
-    }
+    if (data === "[DONE]") break;
 
     try {
       const parsed = JSON.parse(data);
-      console.log("[MiniMax] Parsed chunk, keys:", Object.keys(parsed));
 
-      // Process ALL choices in the chunk, not just the first one
       if (parsed.choices && parsed.choices.length > 0) {
         for (const choice of parsed.choices) {
-          let content = null;
-
-          // OpenAI-style streaming (priority - most common format)
           if (choice.delta?.content) {
-            content = choice.delta.content;
-          }
-
-          // MiniMax-specific text format (only if delta.content not set)
-          else if (choice.text) {
-            content = choice.text;
-          }
-
-          // Base message content field (only if neither above is set)
-          else if (choice.message?.content) {
-            content = choice.message.content;
-          }
-
-          // Debug: log if no content found
-          if (!content) {
-            console.log(
-              "[MiniMax] No content in delta.text.message, choice keys:",
-              Object.keys(choice).join(", "),
-              "delta keys:",
-              choice.delta ? Object.keys(choice.delta).join(", ") : "null",
-            );
-          }
-
-          if (content) {
-            // Simple approach: just yield the content directly
-            // Don't try to do any deduplication or slicing
-            // This handles cases where the API sends content in a non-sequential way
-            console.log(
-              "[MiniMax] Yielding content:",
-              content.substring(0, 50) +
-                (content.length > 50 ? "..." : ""),
-            );
-            yield content;
-            accumulatedYieldedText = content;
+            deltaContent += choice.delta.content;
+          } else if (choice.text) {
+            lastChoiceText = choice.text;
           }
         }
       }
@@ -242,6 +185,15 @@ export async function* streamMinimaxResponse(
         e.message,
       );
     }
+  }
+
+  // Prefer the cumulative choice.text (most complete), fall back to accumulated delta
+  const fullContent = lastChoiceText || deltaContent;
+  if (fullContent) {
+    console.log("[MiniMax] Yielding full response, length:", fullContent.length);
+    yield fullContent;
+  } else {
+    console.warn("[MiniMax] No content found in SSE stream");
   }
 
   console.log("[MiniMax] Stream ended");
