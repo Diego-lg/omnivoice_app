@@ -824,10 +824,18 @@ export async function createVoiceProfile(
   transcription = null,
   baseUrl = OMNIVOICE_BASE_URL,
 ) {
-  // Convert audio blob to base64
+  const sampleRate = await getAudioSampleRate(refAudio);
+  let processedBlob = refAudio;
+  if (sampleRate !== null && sampleRate !== 24000) {
+    console.log(
+      `Resampling voice profile reference from ${sampleRate}Hz to 24000Hz`,
+    );
+    processedBlob = await resampleAudio(refAudio, 24000);
+  }
+
   let audioBase64;
   try {
-    audioBase64 = await blobToBase64(refAudio);
+    audioBase64 = await blobToBase64(processedBlob);
   } catch (err) {
     throw new Error(`Failed to encode audio: ${err.message}`);
   }

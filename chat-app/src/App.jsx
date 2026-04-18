@@ -9,6 +9,12 @@ import ChatHistory from "./components/ChatHistory";
 import { minimax, omnivoice, getOmnivoiceBaseUrl } from "./services/api";
 import { stripEmojis, prepareTextForTts } from "./utils/text";
 import { getDirectorModeSystemAppendix } from "./utils/directorMode";
+import {
+  STORY_NARRATOR_SYSTEM,
+  STORY_SEGMENT_MAX_TOKENS,
+  buildStoryStartUserMessage,
+  buildStoryChatMessages,
+} from "./utils/storyMode";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -224,10 +230,13 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [scrollToIndex, setScrollToIndex] = useState(null);
   const [error, setError] = useState(null);
+  const [storyModeRunning, setStoryModeRunning] = useState(false);
   const chatEndRef = useRef(null);
   // Shared AudioContext created during a user gesture so the browser allows
   // audio playback even when TTS is triggered asynchronously later.
   const sharedAudioContextRef = useRef(null);
+  const storyCancelledRef = useRef(false);
+  const storyLoopActiveRef = useRef(false);
 
   const allPersonas = getAllPersonas(customPersonas);
   const currentPersona = getPersonaById(allPersonas, selectedPersonaId);
@@ -257,6 +266,252 @@ function App() {
       return newConfig;
     });
   }, []);
+
+  const stopStoryMode = useCallback(() => {
+    storyCancelledRef.current = true;
+  }, []);
+
+  const startStoryMode = useCallback(
+    async (seed) => {
+      if (storyLoopActiveRef.current || isLoading) return;
+      if (config.provider !== "minimax" || !config.minimaxApiKey) {
+        setError(
+          "Story mode needs a MiniMax API key. Add it under Settings → Provider.",
+        );
+        return;
+      }
+
+      storyCancelledRef.current = false;
+      storyLoopActiveRef.current = true;
+      setStoryModeRunning(true);
+      setError(null);
+
+      const sid = currentSessionId;
+      const omnivoiceApiRoot = getOmnivoiceBaseUrl(config);
+
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (
+          !sharedAudioContextRef.current ||
+          sharedAudioContextRef.current.state === "closed"
+        ) {
+          sharedAudioContextRef.current = new AudioCtx();
+        }
+        if (sharedAudioContextRef.current.state === "suspended") {
+          await sharedAudioContextRef.current.resume().catch(() => {});
+        }
+      } catch {
+        /* AudioContext unavailable */
+      }
+
+      const startUserText = buildStoryStartUserMessage(seed);
+      const userMessage = {
+        id: Date.now(),
+        role: "user",
+        content: seed?.trim()
+          ? `Story mode — ${seed.trim()}`
+          : "Story mode — endless spoken story",
+        images: [],
+        timestamp: new Date().toISOString(),
+        audioBlob: null,
+      };
+      const assistantMessageId = Date.now() + 1;
+
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== sid) return s;
+          const updatedMessages = [
+            ...s.messages,
+            userMessage,
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              content: "",
+              timestamp: new Date().toISOString(),
+              isLoading: true,
+              isStreaming: false,
+            },
+          ];
+          return {
+            ...s,
+            messages: updatedMessages,
+            updatedAt: new Date().toISOString(),
+            title:
+              s.title === "New Conversation" ? "Story mode" : s.title,
+          };
+        }),
+      );
+
+      let accumulated = "";
+      const directorAppendix = getDirectorModeSystemAppendix(
+        config.textFormatConfig,
+      );
+      const storySystem = {
+        role: "system",
+        content: [currentPersona.systemPrompt, STORY_NARRATOR_SYSTEM, directorAppendix]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
+
+      const segmentLlmConfig = {
+        ...config.llmConfig,
+        maxTokens: Math.min(
+          STORY_SEGMENT_MAX_TOKENS,
+          config.llmConfig?.maxTokens ?? 2048,
+        ),
+      };
+
+      const ttsOptions = {
+        voice: config.voiceMode || "auto",
+        voiceConfig: config.voiceConfig || {},
+        generationConfig: config.voiceGenerationConfig || {},
+        voiceProfileId: config.voiceConfig?.selectedProfileId || null,
+        audioContext: sharedAudioContextRef.current || null,
+      };
+
+      const updateAssistant = (content, extra = {}) => {
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== sid) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMessageId
+                  ? {
+                      ...msg,
+                      content,
+                      isLoading: false,
+                      isStreaming: false,
+                      ...extra,
+                    }
+                  : msg,
+              ),
+              updatedAt: new Date().toISOString(),
+            };
+          }),
+        );
+      };
+
+      try {
+        let emptyRounds = 0;
+        while (!storyCancelledRef.current) {
+          const chatMessages = buildStoryChatMessages(
+            storySystem,
+            startUserText,
+            accumulated,
+          );
+
+          let segmentContent = "";
+          const stream = minimax.streamMinimaxResponse(
+            chatMessages,
+            config.minimaxApiKey,
+            config.minimaxModel,
+            segmentLlmConfig,
+          );
+
+          for await (const chunk of stream) {
+            if (storyCancelledRef.current) break;
+            segmentContent += stripEmojis(chunk);
+          }
+
+          if (storyCancelledRef.current) break;
+
+          const piece = segmentContent.replace(/\s+/g, " ").trim();
+          if (!piece) {
+            emptyRounds += 1;
+            if (emptyRounds >= 2) {
+              updateAssistant(
+                accumulated
+                  ? `${accumulated}\n\n[Story paused — empty reply from the model.]`
+                  : "[Story paused — empty reply from the model.]",
+                { isError: !accumulated },
+              );
+              break;
+            }
+            continue;
+          }
+          emptyRounds = 0;
+
+          accumulated = accumulated ? `${accumulated}\n\n${piece}` : piece;
+          updateAssistant(accumulated);
+
+          const ttsText =
+            prepareTextForTts(piece).trim() ||
+            stripEmojis(piece).replace(/\s+/g, " ").trim();
+          if (!ttsText || storyCancelledRef.current) continue;
+
+          updateAssistant(accumulated, { isStreamingAudio: true });
+          try {
+            await omnivoice.streamTextToSpeech(
+              ttsText,
+              ttsOptions,
+              omnivoiceApiRoot,
+            );
+          } catch (ttsErr) {
+            console.error("Story mode TTS failed:", ttsErr);
+            setError(ttsErr.message || String(ttsErr));
+            updateAssistant(accumulated, { isStreamingAudio: false });
+            break;
+          }
+          if (!storyCancelledRef.current) {
+            updateAssistant(accumulated, { isStreamingAudio: false });
+          }
+        }
+      } catch (err) {
+        setError(err.message);
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== sid) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMessageId
+                  ? {
+                      ...msg,
+                      content: accumulated
+                        ? `${accumulated}\n\nError: ${err.message}`
+                        : `Error: ${err.message}`,
+                      isLoading: false,
+                      isStreaming: false,
+                      isStreamingAudio: false,
+                      isError: !accumulated,
+                    }
+                  : msg,
+              ),
+            };
+          }),
+        );
+      } finally {
+        storyLoopActiveRef.current = false;
+        storyCancelledRef.current = false;
+        setStoryModeRunning(false);
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== sid) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMessageId
+                  ? {
+                      ...msg,
+                      isLoading: false,
+                      isStreaming: false,
+                      isStreamingAudio: false,
+                    }
+                  : msg,
+              ),
+            };
+          }),
+        );
+      }
+    },
+    [
+      config,
+      currentSessionId,
+      isLoading,
+      currentPersona,
+    ],
+  );
 
   const handleRealtimeStsToggle = useCallback(() => {
     const next = !config.realtimeSpeechToSpeech;
@@ -353,6 +608,7 @@ function App() {
 
   const sendMessage = useCallback(
     async (content, images = [], voiceBlob = null) => {
+      if (storyLoopActiveRef.current) return;
       if ((!content.trim() && images.length === 0 && !voiceBlob) || isLoading)
         return;
 
@@ -749,6 +1005,9 @@ function App() {
           sttConfig={config.sttConfig}
           realtimeStsEnabled={!!config.realtimeSpeechToSpeech}
           onRealtimeStsToggle={handleRealtimeStsToggle}
+          storyModeRunning={storyModeRunning}
+          onStartStory={startStoryMode}
+          onStopStory={stopStoryMode}
         />
       </div>
       {showSettings && (

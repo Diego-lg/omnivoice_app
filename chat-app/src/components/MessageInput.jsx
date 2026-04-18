@@ -22,6 +22,9 @@ function MessageInput({
   sttConfig,
   realtimeStsEnabled = false,
   onRealtimeStsToggle,
+  storyModeRunning = false,
+  onStartStory,
+  onStopStory,
 }) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState([]);
@@ -121,12 +124,16 @@ function MessageInput({
     [stopSpeechRecognition],
   );
 
+  const inputLocked = disabled || storyModeRunning;
+  disabledRef.current = inputLocked;
+
   const handleSubmit = useCallback(() => {
     const typed = input.trim();
     const spoken = (voiceTranscriptRef.current || voiceTranscript).trim();
     const combined =
       typed && spoken ? `${typed}\n\n${spoken}` : typed || spoken;
-    if ((!combined && images.length === 0 && !recordedBlob) || disabled) return;
+    if ((!combined && images.length === 0 && !recordedBlob) || inputLocked)
+      return;
 
     const mr = mediaRecorderRef.current;
     if (mr && (mr.state === "recording" || mr.state === "paused")) {
@@ -147,7 +154,7 @@ function MessageInput({
     voiceTranscript,
     images,
     recordedBlob,
-    disabled,
+    inputLocked,
     onSend,
     stopRecording,
   ]);
@@ -443,7 +450,15 @@ function MessageInput({
   const spoken = voiceTranscript.trim();
   const hasTextForModel = typed.length > 0 || spoken.length > 0;
   // MiniMax only receives text — a voice clip alone is not enough.
-  const canSend = !disabled && (images.length > 0 || hasTextForModel);
+  const canSend = !inputLocked && (images.length > 0 || hasTextForModel);
+
+  const handleStoryModeClick = () => {
+    if (typeof onStartStory !== "function" || inputLocked) return;
+    const seed = input.trim();
+    onStartStory(seed);
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
 
   // Calculate character and token counts
   const charCount = input.length;
@@ -461,13 +476,39 @@ function MessageInput({
 
   return (
     <div className="message-input-container">
-      {typeof onRealtimeStsToggle === "function" && (
-        <RealtimeStsToggle
-          enabled={realtimeStsEnabled}
-          disabled={disabled}
-          onToggle={onRealtimeStsToggle}
-        />
-      )}
+      <div className="message-input-extras">
+        {typeof onRealtimeStsToggle === "function" && (
+          <RealtimeStsToggle
+            enabled={realtimeStsEnabled}
+            disabled={inputLocked}
+            onToggle={onRealtimeStsToggle}
+          />
+        )}
+        {typeof onStartStory === "function" && (
+          <div className="story-mode-control">
+            {storyModeRunning ? (
+              <button
+                type="button"
+                className="story-mode-btn story-mode-btn--stop"
+                onClick={onStopStory}
+                aria-pressed="true"
+              >
+                Stop story
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="story-mode-btn"
+                onClick={handleStoryModeClick}
+                disabled={inputLocked}
+                title="Speak an endless story with voice (optional hint in the box)"
+              >
+                Story mode
+              </button>
+            )}
+          </div>
+        )}
+      </div>
       {images.length > 0 && (
         <div className="image-preview-container">
           {images.map((image, index) => (
@@ -574,7 +615,7 @@ function MessageInput({
           type="button"
           className="upload-button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || images.length >= MAX_IMAGES}
+          disabled={inputLocked || images.length >= MAX_IMAGES}
           aria-label="Upload image"
         >
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -597,7 +638,7 @@ function MessageInput({
           type="button"
           className={`voice-input-button ${isRecording ? "recording" : ""}`}
           onClick={handleVoiceInputClick}
-          disabled={disabled}
+          disabled={inputLocked}
           aria-label={
             isRecording
               ? narrowViewport
@@ -634,7 +675,7 @@ function MessageInput({
               : "Type your message..."
           }
           rows={1}
-          disabled={disabled}
+          disabled={inputLocked}
         />
         {getCounterText() && (
           <span className="input-counter">{getCounterText()}</span>
@@ -657,7 +698,12 @@ function MessageInput({
         </button>
       </div>
       <p className="input-hint">
-        {isRecording ? (
+        {storyModeRunning ? (
+          <span className="story-mode-hint">
+            Story mode — the model keeps adding spoken chapters until you tap
+            Stop story.
+          </span>
+        ) : isRecording ? (
           <span className="recording-hint">
             <span className="recording-pulse"></span>
             Recording — click mic to stop. Your speech is captioned for the
@@ -669,6 +715,11 @@ function MessageInput({
             Live speech → speech: tap the mic, speak, stop, then send — the
             assistant’s reply is synthesized in your voice (OmniVoice STS).
           </span>
+        ) : typeof onStartStory === "function" ? (
+          <>
+            Press Enter to send. Optional: type a genre or idea, then Story
+            mode.
+          </>
         ) : (
           "Press Enter to send, Shift+Enter for new line"
         )}
