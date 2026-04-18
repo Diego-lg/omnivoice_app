@@ -214,9 +214,9 @@ const ChatMessage = React.forwardRef(function ChatMessage(
                   {message.content}
                 </ReactMarkdown>
               ) : (
-                <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
+                <div className="plain-text-content">
                   {message.content}
-                </pre>
+                </div>
               )}
               {isStreaming && (
                 <span className="streaming-indicator">
