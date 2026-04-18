@@ -80,23 +80,69 @@ export async function* streamMinimaxResponse(
     );
     try {
       const parsed = JSON.parse(responseText);
+
+      // Check for API error
       if (parsed.error) {
         console.error("[MiniMax] API Error:", parsed.error);
-        throw new Error(parsed.error.message || JSON.stringify(parsed.error));
+        const errorMsg =
+          parsed.error.message ||
+          parsed.error.error_msg ||
+          JSON.stringify(parsed.error);
+        throw new Error(`MiniMax API Error: ${errorMsg}`);
       }
-      // Non-streaming response
-      const content =
-        parsed.choices?.[0]?.message?.content ||
-        parsed.choices?.[0]?.text ||
-        parsed.choices?.[0]?.delta?.content;
+
+      // Check for usage exceeded or other error codes
+      if (parsed.error_code) {
+        console.error(
+          "[MiniMax] API Error Code:",
+          parsed.error_code,
+          parsed.error_msg,
+        );
+        throw new Error(
+          `MiniMax API Error ${parsed.error_code}: ${parsed.error_msg || "Unknown error"}`,
+        );
+      }
+
+      // Non-streaming response - extract content with correct priority
+      // MiniMax non-streaming returns: choices[0].message.content
+      const choice = parsed.choices?.[0];
+      let content = null;
+
+      if (choice) {
+        // Priority 1: message.content (standard non-streaming response)
+        if (choice.message?.content) {
+          content = choice.message.content;
+        }
+        // Priority 2: text (MiniMax-specific format)
+        else if (choice.text) {
+          content = choice.text;
+        }
+        // Priority 3: delta.content (less common for non-streaming but handle it)
+        else if (choice.delta?.content) {
+          content = choice.delta.content;
+        }
+      }
+
       if (content) {
-        console.log("[MiniMax] Yielding non-streaming content");
+        console.log(
+          "[MiniMax] Yielding non-streaming content, length:",
+          content.length,
+        );
         yield content;
+      } else {
+        // No content found - this might be an unexpected response format
+        console.warn("[MiniMax] No content found in non-streaming response");
+        console.warn(
+          "[MiniMax] Response structure:",
+          JSON.stringify(parsed).substring(0, 500),
+        );
       }
       return;
     } catch (e) {
       if (e.message.includes("API Error")) throw e;
-      console.warn("[MiniMax] Failed to parse JSON:", e.message);
+      if (e.message.includes("Error Code")) throw e;
+      console.warn("[MiniMax] Failed to parse JSON response:", e.message);
+      throw new Error(`Failed to parse MiniMax response: ${e.message}`);
     }
   }
 
@@ -104,8 +150,9 @@ export async function* streamMinimaxResponse(
   console.log("[MiniMax] Parsing SSE stream");
   const lines = responseText.split(/\r?\n/);
 
-  // Track the character position we've yielded up to (handles MiniMax sending accumulated text)
-  let lastYieldedLength = 0;
+  // Track the full accumulated text we've already yielded
+  // This handles MiniMax sending accumulated text in each chunk
+  let accumulatedYieldedText = "";
 
   for (const line of lines) {
     if (line.trim() === "") continue;
@@ -129,48 +176,92 @@ export async function* streamMinimaxResponse(
         for (const choice of parsed.choices) {
           let content = null;
 
-          // OpenAI-style streaming
+          // OpenAI-style streaming (priority - most common format)
           if (choice.delta?.content) {
             content = choice.delta.content;
           }
 
-          // MiniMax-specific text format
-          if (choice.text) {
+          // MiniMax-specific text format (only if delta.content not set)
+          else if (choice.text) {
             content = choice.text;
           }
 
-          // Base message content field
-          if (choice.message?.content) {
+          // Base message content field (only if neither above is set)
+          else if (choice.message?.content) {
             content = choice.message.content;
           }
 
           if (content) {
-            const contentLength = content.length;
+            // Normalize content - trim leading/trailing whitespace for comparison
+            const normalizedContent = content.trim();
 
-            // Skip content that's at or before our last yielded position
-            // This handles MiniMax sending accumulated text in each chunk
-            if (contentLength <= lastYieldedLength) {
+            // Check if this chunk is identical to what we've already yielded (deduplication)
+            // This handles the case where API sends the same content multiple times
+            if (accumulatedYieldedText.includes(normalizedContent)) {
               console.log(
-                "[MiniMax] Skipping content length",
-                contentLength,
-                "≤ lastYieldedLength",
-                lastYieldedLength,
+                "[MiniMax] Skipping chunk - content already yielded:",
+                normalizedContent.substring(0, 30),
               );
               continue;
             }
 
-            // Extract only the new portion beyond what we've already yielded
-            const newContent = content.substring(lastYieldedLength);
+            // Check if this chunk starts with our accumulated text
+            // If it does, extract only the new portion
+            if (
+              accumulatedYieldedText.length > 0 &&
+              (content.startsWith(accumulatedYieldedText) ||
+                normalizedContent.startsWith(accumulatedYieldedText.trim()))
+            ) {
+              // Extract the new portion after what we've already seen
+              const existingLen = accumulatedYieldedText.length;
+              const newContent = content.slice(existingLen);
 
-            if (newContent.trim()) {
-              console.log(
-                "[MiniMax] Yielding new content:",
-                newContent.substring(0, 50) +
-                  (newContent.length > 50 ? "..." : ""),
-              );
-              yield newContent;
-              lastYieldedLength = contentLength;
+              if (newContent && newContent.trim()) {
+                console.log(
+                  "[MiniMax] Yielding new content (after accumulated):",
+                  newContent.substring(0, 50) +
+                    (newContent.length > 50 ? "..." : ""),
+                );
+                yield newContent;
+                accumulatedYieldedText += newContent;
+              } else if (newContent.length > 0) {
+                // Whitespace-only new content - still track it to stay in sync
+                accumulatedYieldedText += newContent;
+              }
+            } else if (content.length > accumulatedYieldedText.length) {
+              // Content doesn't start with accumulated text - either first chunk or mismatch
+              // Try to extract new content based on length comparison
+              const existingLength = accumulatedYieldedText.length;
+              const contentLength = content.length;
+
+              if (contentLength > existingLength) {
+                const newContent = content.slice(existingLength);
+
+                if (newContent && newContent.trim()) {
+                  // Additional safety: check if newContent is essentially duplicate
+                  // If accumulated already ends with newContent, skip it
+                  if (accumulatedYieldedText.endsWith(newContent.trim())) {
+                    console.log(
+                      "[MiniMax] Skipping - appears to be duplicate suffix:",
+                      newContent.substring(0, 30),
+                    );
+                    continue;
+                  }
+
+                  console.log(
+                    "[MiniMax] Yielding new content (by length):",
+                    newContent.substring(0, 50) +
+                      (newContent.length > 50 ? "..." : ""),
+                  );
+                  yield newContent;
+                  accumulatedYieldedText += newContent;
+                } else if (newContent.length > 0) {
+                  // Whitespace-only new content - still track it to stay in sync
+                  accumulatedYieldedText += newContent;
+                }
+              }
             }
+            // If content length <= accumulated length, skip (already fully yielded)
           }
         }
       }

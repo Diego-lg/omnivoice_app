@@ -450,6 +450,8 @@ function App() {
         );
 
         if (voiceEnabled && assistantContent.trim()) {
+          // When TTS is enabled, hide text content and show loading state
+          // until audio is successfully generated
           setSessions((prev) =>
             prev.map((s) => {
               if (s.id !== currentSessionId) return s;
@@ -457,7 +459,12 @@ function App() {
                 ...s,
                 messages: s.messages.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, isLoading: true }
+                    ? {
+                        ...msg,
+                        content: "",
+                        isLoading: true,
+                        pendingContent: assistantContent,
+                      }
                     : msg,
                 ),
               };
@@ -527,6 +534,8 @@ function App() {
                     msg.id === assistantMessageId
                       ? {
                           ...msg,
+                          content: msg.pendingContent || "",
+                          pendingContent: null,
                           audioBlob,
                           audioUrl,
                           isLoading: false,
@@ -539,6 +548,7 @@ function App() {
             );
           } catch (ttsErr) {
             console.error("TTS generation failed:", ttsErr);
+            // Restore text content when TTS fails
             setSessions((prev) =>
               prev.map((s) => {
                 if (s.id !== currentSessionId) return s;
@@ -546,7 +556,12 @@ function App() {
                   ...s,
                   messages: s.messages.map((msg) =>
                     msg.id === assistantMessageId
-                      ? { ...msg, isLoading: false }
+                      ? {
+                          ...msg,
+                          content: msg.pendingContent || "",
+                          pendingContent: null,
+                          isLoading: false,
+                        }
                       : msg,
                   ),
                 };
