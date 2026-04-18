@@ -30,7 +30,6 @@ function PersonaSelector({ personas, selectedPersonaId, onPersonaChange, onEditP
         aria-expanded={isOpen}
         aria-haspopup="listbox"
       >
-        <span className="persona-avatar">{selectedPersona?.avatar}</span>
         <span className="persona-name">{selectedPersona?.name}</span>
         <svg
           width="12"
@@ -61,7 +60,6 @@ function PersonaSelector({ personas, selectedPersonaId, onPersonaChange, onEditP
                   role="option"
                   aria-selected={persona.id === selectedPersonaId}
                 >
-                  <span className="persona-option-avatar">{persona.avatar}</span>
                   <div className="persona-option-info">
                     <span className="persona-option-name">{persona.name}</span>
                     <span className="persona-option-desc">{persona.description}</span>

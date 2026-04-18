@@ -2,17 +2,9 @@ import { useState } from "react";
 import { PREMADE_PERSONAS, createCustomPersona, duplicatePersona } from "../data/personas";
 import "./PersonaEditor.css";
 
-const EMOJI_OPTIONS = [
-  "🤖", "💻", "✍️", "📊", "⚖️", "🎭", "🎨", "🎯", "🚀", "💡",
-  "🔬", "📚", "🌟", "🔧", "💬", "🎤", "🎬", "🎪", "🎨", "🏆",
-  "🧠", "💭", "📝", "🔍", "💡", "🎯", "🔥", "⭐", "🌈", "🎲"
-];
-
 function PersonaEditor({ personas, selectedPersonaId, onPersonaChange, onSave, onClose }) {
   const [localPersonas, setLocalPersonas] = useState(personas);
   const [editingId, setEditingId] = useState(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [emojiPickerTarget, setEmojiPickerTarget] = useState(null);
 
   const allPersonas = [...PREMADE_PERSONAS, ...localPersonas.filter(p => !p.isDefault)];
 
@@ -53,19 +45,6 @@ function PersonaEditor({ personas, selectedPersonaId, onPersonaChange, onSave, o
     setEditingId(personaId);
   };
 
-  const openEmojiPicker = (personaId) => {
-    setEmojiPickerTarget(personaId);
-    setShowEmojiPicker(true);
-  };
-
-  const selectEmoji = (emoji) => {
-    if (emojiPickerTarget) {
-      handlePersonaChange("avatar", emoji);
-    }
-    setShowEmojiPicker(false);
-    setEmojiPickerTarget(null);
-  };
-
   const editingPersona = localPersonas.find(p => p.id === editingId);
 
   return (
@@ -101,7 +80,6 @@ function PersonaEditor({ personas, selectedPersonaId, onPersonaChange, onSave, o
                     className="persona-list-btn"
                     onClick={() => handleEditClick(persona.id)}
                   >
-                    <span className="persona-item-avatar">{persona.avatar}</span>
                     <div className="persona-item-info">
                       <span className="persona-item-name">
                         {persona.name}
@@ -131,37 +109,6 @@ function PersonaEditor({ personas, selectedPersonaId, onPersonaChange, onSave, o
                 </div>
 
                 <div className="persona-edit-form">
-                  <div className="form-group">
-                    <label className="form-label">Avatar</label>
-                    <div className="emoji-picker-container">
-                      <button
-                        type="button"
-                        className="emoji-display"
-                        onClick={() => openEmojiPicker(editingPersona.id)}
-                        disabled={editingPersona.isDefault}
-                      >
-                        {editingPersona.avatar}
-                      </button>
-                      {showEmojiPicker && emojiPickerTarget === editingPersona.id && (
-                        <>
-                          <div className="emoji-picker-overlay" onClick={() => setShowEmojiPicker(false)} />
-                          <div className="emoji-picker">
-                            {EMOJI_OPTIONS.map((emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                className="emoji-option"
-                                onClick={() => selectEmoji(emoji)}
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
                   <div className="form-group">
                     <label className="form-label">Name</label>
                     <input

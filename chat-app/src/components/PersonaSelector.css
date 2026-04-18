@@ -27,11 +27,6 @@
   outline: none;
 }
 
-.persona-avatar {
-  font-size: 16px;
-  line-height: 1;
-}
-
 .persona-name {
   font-weight: 500;
 }
@@ -117,13 +112,6 @@
   color: var(--accent);
 }
 
-.persona-option-avatar {
-  font-size: 24px;
-  line-height: 1;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
 .persona-option-info {
   display: flex;
   flex-direction: column;
@@ -206,9 +194,5 @@
   .persona-option {
     padding: var(--spacing-md);
     min-height: 60px;
-  }
-
-  .persona-option-avatar {
-    font-size: 20px;
   }
 }

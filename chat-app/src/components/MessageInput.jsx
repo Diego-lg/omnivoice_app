@@ -32,6 +32,33 @@ function MessageInput({
   const voiceTranscriptRef = useRef("");
   /** True between MediaRecorder.start and .stop — used to restart STT if it ends mid-take. */
   const recordingActiveRef = useRef(false);
+  const inputRef = useRef("");
+  const imagesRef = useRef([]);
+  const onSendRef = useRef(onSend);
+  const disabledRef = useRef(disabled);
+
+  inputRef.current = input;
+  imagesRef.current = images;
+  onSendRef.current = onSend;
+  disabledRef.current = disabled;
+
+  /** Matches CSS mobile breakpoint — tap-to-send after stop instead of preview + send. */
+  const isMobileRecordingAutoSend = () =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 768px)").matches;
+
+  const [narrowViewport, setNarrowViewport] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 768px)").matches
+      : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const onChange = () => setNarrowViewport(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const stopSpeechRecognition = useCallback(() => {
     if (recognitionRef.current) {
@@ -227,9 +254,43 @@ function MessageInput({
         // Use the recorder's actual mimeType so the blob format always matches
         const usedMime = mediaRecorder.mimeType || mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type: usedMime });
-        setRecordedBlob(blob);
+
         mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
+
+        const tryMobileAutoSend =
+          isMobileRecordingAutoSend() &&
+          blob.size > 0 &&
+          !disabledRef.current;
+
+        if (tryMobileAutoSend) {
+          const typed = inputRef.current.trim();
+          const spoken = (voiceTranscriptRef.current || "").trim();
+          let combined =
+            typed && spoken ? `${typed}\n\n${spoken}` : typed || spoken;
+          combined = combined.trim();
+          const imgs = imagesRef.current;
+          if (!combined && imgs.length === 0) {
+            // Parent API requires non-empty text when a voice blob is present
+            // (e.g. MiniMax). Mobile often has no Web Speech captions.
+            combined = "(Voice message)";
+          }
+          if (combined || imgs.length > 0 || blob.size > 0) {
+            onSendRef.current(combined, imgs, blob);
+            setInput("");
+            setVoiceTranscript("");
+            voiceTranscriptRef.current = "";
+            setImages([]);
+            setRecordedBlob(null);
+            setIsPlayingPreview(false);
+            if (textareaRef.current) {
+              textareaRef.current.style.height = "auto";
+            }
+            return;
+          }
+        }
+
+        setRecordedBlob(blob);
       };
 
       // 100 ms timeslice: ensures ondataavailable fires regularly so no data is lost
@@ -528,7 +589,13 @@ function MessageInput({
           className={`voice-input-button ${isRecording ? "recording" : ""}`}
           onClick={handleVoiceInputClick}
           disabled={disabled}
-          aria-label={isRecording ? "Stop recording" : "Start recording"}
+          aria-label={
+            isRecording
+              ? narrowViewport
+                ? "Stop and send voice message"
+                : "Stop recording"
+              : "Start recording"
+          }
         >
           {isRecording ? (
             <div className="recording-indicator">
