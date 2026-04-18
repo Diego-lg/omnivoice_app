@@ -17,6 +17,7 @@ const ChatMessage = React.forwardRef(function ChatMessage(
   const isStreaming = message.isStreaming;
   const images = message.images || [];
   const hasAudio = message.audioUrl || message.audioBlob;
+  const isStreamingAudio = message.isStreamingAudio || false;
   const transcript = message.transcript || null;
   const autoPlay = message.autoPlay || false;
 
@@ -225,7 +226,19 @@ const ChatMessage = React.forwardRef(function ChatMessage(
                 </span>
               )}
             </div>
-            {hasAudio && (
+            {isStreamingAudio && (
+              <div className="audio-streaming-indicator">
+                <div className="audio-wave-bars">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <span className="audio-streaming-label">Playing…</span>
+              </div>
+            )}
+            {hasAudio && !isStreamingAudio && (
               <div className="audio-player">
                 <audio
                   ref={audioRef}

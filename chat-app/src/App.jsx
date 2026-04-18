@@ -208,6 +208,9 @@ function App() {
   const [scrollToIndex, setScrollToIndex] = useState(null);
   const [error, setError] = useState(null);
   const chatEndRef = useRef(null);
+  // Shared AudioContext created during a user gesture so the browser allows
+  // audio playback even when TTS is triggered asynchronously later.
+  const sharedAudioContextRef = useRef(null);
 
   const allPersonas = getAllPersonas(customPersonas);
   const currentPersona = getPersonaById(allPersonas, selectedPersonaId);
@@ -327,6 +330,26 @@ function App() {
     async (content, images = [], voiceBlob = null) => {
       if ((!content.trim() && images.length === 0 && !voiceBlob) || isLoading)
         return;
+
+      // Create or reuse a shared AudioContext while we're inside a user gesture.
+      // Browsers require a gesture to allow audio playback; creating the context
+      // here (before any async work) ensures it starts in "running" state.
+      if (config.voiceEnabled) {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (
+            !sharedAudioContextRef.current ||
+            sharedAudioContextRef.current.state === "closed"
+          ) {
+            sharedAudioContextRef.current = new AudioCtx();
+          }
+          if (sharedAudioContextRef.current.state === "suspended") {
+            sharedAudioContextRef.current.resume().catch(() => {});
+          }
+        } catch {
+          // AudioContext not available (e.g. server-side render)
+        }
+      }
 
       const userMessage = {
         id: Date.now(),
@@ -449,124 +472,109 @@ function App() {
           }),
         );
 
-        if (voiceEnabled && assistantContent.trim()) {
-          // When TTS is enabled, hide text content and show loading state
-          // until audio is successfully generated
+        // Capture identifiers before any async gap so closures are stable.
+        const ttsSessionId = currentSessionId;
+        const ttsMsgId = assistantMessageId;
+        const ttsContent = assistantContent;
+
+        if (voiceEnabled && ttsContent.trim()) {
+          const ttsOptions = {
+            voice: config.voiceMode || "auto",
+            voiceConfig: config.voiceConfig || {},
+            generationConfig: config.voiceGenerationConfig || {},
+            voiceProfileId: config.voiceConfig?.selectedProfileId || null,
+            audioContext: sharedAudioContextRef.current || null,
+          };
+
+          // Mark the message as streaming audio so the UI shows a playing indicator.
+          // Text remains visible — we no longer hide it while waiting for audio.
           setSessions((prev) =>
             prev.map((s) => {
-              if (s.id !== currentSessionId) return s;
+              if (s.id !== ttsSessionId) return s;
               return {
                 ...s,
                 messages: s.messages.map((msg) =>
-                  msg.id === assistantMessageId
-                    ? {
-                        ...msg,
-                        content: "",
-                        isLoading: true,
-                        pendingContent: assistantContent,
-                      }
+                  msg.id === ttsMsgId
+                    ? { ...msg, isStreamingAudio: true }
                     : msg,
                 ),
               };
             }),
           );
 
-          try {
-            const ttsOptions = {
-              voice: config.voiceMode || "auto",
-              voiceConfig: config.voiceConfig || {},
-              generationConfig: config.voiceGenerationConfig || {},
-              voiceProfileId: config.voiceConfig?.selectedProfileId || null,
-            };
-
-            let audioResult;
-
-            if (voiceBlob) {
-              try {
-                audioResult = await omnivoice.speechToSpeech(
-                  voiceBlob,
-                  assistantContent,
-                  ttsOptions,
-                );
-                setSessions((prev) =>
-                  prev.map((s) => {
-                    if (s.id !== currentSessionId) return s;
-                    return {
-                      ...s,
-                      messages: s.messages.map((msg) =>
-                        msg.id === assistantMessageId
-                          ? {
-                              ...msg,
-                              transcript: audioResult.transcript,
-                              autoPlay:
-                                config.playbackConfig?.autoPlay || false,
-                            }
-                          : msg,
-                      ),
-                    };
-                  }),
-                );
-              } catch (stsErr) {
-                console.warn(
-                  "Speech-to-speech failed, falling back to TTS:",
-                  stsErr,
-                );
-                audioResult = await omnivoice.textToSpeech(
-                  assistantContent,
-                  ttsOptions,
-                );
-              }
-            } else {
-              audioResult = await omnivoice.textToSpeech(
-                assistantContent,
-                ttsOptions,
-              );
-            }
-
-            const { audioBlob, audioUrl } = audioResult;
-
+          const attachAudio = (audioBlob, audioUrl, extra = {}) => {
             setSessions((prev) =>
               prev.map((s) => {
-                if (s.id !== currentSessionId) return s;
+                if (s.id !== ttsSessionId) return s;
                 return {
                   ...s,
                   messages: s.messages.map((msg) =>
-                    msg.id === assistantMessageId
+                    msg.id === ttsMsgId
                       ? {
                           ...msg,
-                          content: msg.pendingContent || "",
-                          pendingContent: null,
                           audioBlob,
                           audioUrl,
-                          isLoading: false,
-                          autoPlay: config.playbackConfig?.autoPlay || false,
+                          isStreamingAudio: false,
+                          ...extra,
                         }
                       : msg,
                   ),
                 };
               }),
             );
-          } catch (ttsErr) {
-            console.error("TTS generation failed:", ttsErr);
-            // Restore text content when TTS fails
+          };
+
+          const clearStreamingAudio = () => {
             setSessions((prev) =>
               prev.map((s) => {
-                if (s.id !== currentSessionId) return s;
+                if (s.id !== ttsSessionId) return s;
                 return {
                   ...s,
                   messages: s.messages.map((msg) =>
-                    msg.id === assistantMessageId
-                      ? {
-                          ...msg,
-                          content: msg.pendingContent || "",
-                          pendingContent: null,
-                          isLoading: false,
-                        }
+                    msg.id === ttsMsgId
+                      ? { ...msg, isStreamingAudio: false }
                       : msg,
                   ),
                 };
               }),
             );
+          };
+
+          if (voiceBlob) {
+            // Speech-to-speech path: keep existing blocking behaviour since
+            // it needs to transcribe the mic recording first anyway.
+            omnivoice
+              .speechToSpeech(voiceBlob, ttsContent, ttsOptions)
+              .then((audioResult) => {
+                attachAudio(audioResult.audioBlob, audioResult.audioUrl, {
+                  transcript: audioResult.transcript,
+                });
+              })
+              .catch((stsErr) => {
+                console.warn(
+                  "Speech-to-speech failed, falling back to streaming TTS:",
+                  stsErr,
+                );
+                omnivoice
+                  .streamTextToSpeech(ttsContent, ttsOptions)
+                  .then(({ audioBlob, audioUrl }) =>
+                    attachAudio(audioBlob, audioUrl),
+                  )
+                  .catch((err) => {
+                    console.error("Fallback streaming TTS failed:", err);
+                    clearStreamingAudio();
+                  });
+              });
+          } else {
+            // Normal text TTS — stream sentence-by-sentence so playback
+            // starts immediately without waiting for the full audio.
+            omnivoice
+              .streamTextToSpeech(ttsContent, ttsOptions)
+              .then(({ audioBlob, audioUrl }) => attachAudio(audioBlob, audioUrl))
+              .catch((err) => {
+                console.error("Streaming TTS failed:", err);
+                clearStreamingAudio();
+              });
           }
         }
       } catch (err) {

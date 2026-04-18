@@ -354,6 +354,7 @@ export async function streamTextToSpeech(
     voiceConfig = {},
     generationConfig = {},
     voiceProfileId = null,
+    audioContext: providedAudioContext = null,
   } = options;
 
   // Validate voice mode requirements
@@ -426,77 +427,176 @@ export async function streamTextToSpeech(
     throw new Error(`Streaming TTS request failed: ${errorDetail}`);
   }
 
-  // Create audio context for decoding
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const reader = response.body.getReader();
-  console.log(
-    "[streamTextToSpeech] Streaming reader created, waiting for chunks...",
-  );
+  // Prefer a pre-running AudioContext passed from the call site (created during
+  // a user gesture). Falling back to a fresh context risks "suspended" state
+  // which silently blocks all scheduled audio.
+  const ownsContext = !providedAudioContext;
+  const audioContext =
+    providedAudioContext ||
+    new (window.AudioContext || window.webkitAudioContext)();
 
+  // Ensure the context is running before scheduling any audio.
+  if (audioContext.state === "suspended") {
+    try {
+      await audioContext.resume();
+    } catch {
+      console.warn("[streamTextToSpeech] Could not resume AudioContext.");
+    }
+  }
+
+  const reader = response.body.getReader();
+  console.log("[streamTextToSpeech] Reader ready, waiting for sentence chunks…");
+
+  // Accumulation buffer: network frames may be split or merged by TCP/HTTP.
+  // We maintain a running byte buffer and extract complete length-prefixed
+  // frames from it rather than assuming one read() === one frame.
+  let buffer = new Uint8Array(0);
+
+  /**
+   * Append newly received bytes to the accumulation buffer.
+   * @param {Uint8Array} incoming
+   */
+  const appendBuffer = (incoming) => {
+    const merged = new Uint8Array(buffer.length + incoming.length);
+    merged.set(buffer, 0);
+    merged.set(incoming, buffer.length);
+    buffer = merged;
+  };
+
+  // Schedule chunks to play back-to-back using AudioContext timestamps.
+  // nextStartTime tracks when the next chunk should begin so there are no
+  // gaps or overlaps regardless of how long decoding takes.
+  let nextStartTime = audioContext.currentTime;
   let chunkIndex = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      console.log(
-        "[streamTextToSpeech] Stream complete. Total chunks received:",
-        chunkIndex,
-      );
-      break;
+
+  // Collect AudioBuffers so we can stitch them into a replay blob at the end.
+  const collectedBuffers = [];
+
+  /**
+   * Decode one complete WAV frame, schedule it for sequential playback,
+   * and store it in collectedBuffers for later replay export.
+   * @param {Uint8Array} frameBytes  Raw WAV bytes for this sentence.
+   */
+  const decodeAndSchedule = async (frameBytes) => {
+    // decodeAudioData requires a detached ArrayBuffer; copy to a fresh one.
+    const copy = frameBytes.buffer.slice(
+      frameBytes.byteOffset,
+      frameBytes.byteOffset + frameBytes.byteLength,
+    );
+    let audioBuffer;
+    try {
+      audioBuffer = await audioContext.decodeAudioData(copy);
+    } catch (err) {
+      console.error("[streamTextToSpeech] Decode failed for chunk", chunkIndex, err);
+      return;
     }
 
     chunkIndex++;
     console.log(
-      "[streamTextToSpeech] Received chunk",
-      chunkIndex,
-      "with",
-      value ? value.length : 0,
-      "bytes",
+      `[streamTextToSpeech] Sentence ${chunkIndex}: ${audioBuffer.duration.toFixed(2)}s`,
     );
 
-    // Read 4-byte length prefix (big-endian unsigned int)
-    const lengthView = new DataView(value.buffer, value.byteOffset, 4);
-    const chunkLength = lengthView.getUint32(0, false);
-    console.log("[streamTextToSpeech] Chunk payload length:", chunkLength);
+    collectedBuffers.push(audioBuffer);
 
-    if (chunkLength === 0) {
-      // Error signal from server
-      console.log("[streamTextToSpeech] Received error marker from server");
-      break;
+    if (onChunk) {
+      onChunk(audioBuffer);
     }
 
-    // Extract audio data after the 4-byte header
-    const audioData = new Uint8Array(
-      value.buffer,
-      value.byteOffset + 4,
-      chunkLength,
-    );
+    // Schedule the chunk to start right after the previous one ends.
+    // If the previous chunk has already finished (e.g. first chunk after a
+    // network delay), start immediately so there is no audible gap.
+    const startAt = Math.max(nextStartTime, audioContext.currentTime);
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    source.start(startAt);
+    nextStartTime = startAt + audioBuffer.duration;
+  };
 
-    try {
-      const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
-      console.log(
-        "[streamTextToSpeech] Decoded chunk",
-        chunkIndex,
-        "- duration:",
-        audioBuffer.duration.toFixed(2),
-        "seconds",
-      );
-      if (onChunk) {
-        onChunk(audioBuffer);
+  // Read the response stream and process complete frames as they arrive.
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    appendBuffer(value);
+
+    // Drain all complete frames from the buffer.
+    while (buffer.length >= 4) {
+      const view = new DataView(buffer.buffer, buffer.byteOffset, 4);
+      const frameLen = view.getUint32(0, false); // big-endian
+
+      if (frameLen === 0) {
+        // Server sent an error sentinel — abort playback.
+        console.warn("[streamTextToSpeech] Server sent error sentinel.");
+        audioContext.close();
+        return { audioBlob: null, audioUrl: null };
       }
 
-      // Play the chunk immediately if callback is provided
-      if (onChunk) {
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        source.start();
+      if (buffer.length < 4 + frameLen) {
+        break; // Frame not fully received yet — wait for more data.
       }
-    } catch (err) {
-      console.error("[streamTextToSpeech] Failed to decode audio chunk:", err);
+
+      // Extract the complete frame and trim the buffer.
+      const frameBytes = buffer.slice(4, 4 + frameLen);
+      buffer = buffer.slice(4 + frameLen);
+
+      await decodeAndSchedule(frameBytes);
     }
   }
 
-  audioContext.close();
+  console.log(
+    `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
+  );
+
+  // Combine all collected chunks into a single WAV blob in parallel with
+  // the remaining scheduled playback time, so there is minimal extra wait.
+  const combinePromise = combineAudioBuffers(collectedBuffers);
+
+  // Wait for all scheduled audio to finish playing.
+  // Use the AudioContext's own timeline: remaining = scheduled end - now.
+  // This is wall-clock-accurate as long as the context is running (which it
+  // is, because we resumed it above before scheduling anything).
+  const remaining = nextStartTime - audioContext.currentTime;
+  if (remaining > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remaining * 1000 + 300));
+  }
+
+  // Only close a context we created ourselves; leave the shared one open.
+  if (ownsContext) {
+    audioContext.close();
+  }
+
+  const audioBlob = await combinePromise;
+  const audioUrl = URL.createObjectURL(audioBlob);
+  return { audioBlob, audioUrl };
+}
+
+/**
+ * Combine multiple AudioBuffers into a single WAV Blob for replay.
+ * Uses OfflineAudioContext to render all buffers sequentially.
+ * @param {AudioBuffer[]} buffers
+ * @returns {Promise<Blob>}
+ */
+async function combineAudioBuffers(buffers) {
+  if (buffers.length === 0) return new Blob([], { type: "audio/wav" });
+  if (buffers.length === 1) return audioBufferToWav(buffers[0]);
+
+  const sampleRate = buffers[0].sampleRate;
+  const numChannels = buffers[0].numberOfChannels;
+  const totalLength = buffers.reduce((sum, b) => sum + b.length, 0);
+
+  const offlineCtx = new OfflineAudioContext(numChannels, totalLength, sampleRate);
+  let offsetFrames = 0;
+  for (const buf of buffers) {
+    const source = offlineCtx.createBufferSource();
+    source.buffer = buf;
+    source.connect(offlineCtx.destination);
+    source.start(offsetFrames / sampleRate);
+    offsetFrames += buf.length;
+  }
+
+  const rendered = await offlineCtx.startRendering();
+  return audioBufferToWav(rendered);
 }
 
 /**

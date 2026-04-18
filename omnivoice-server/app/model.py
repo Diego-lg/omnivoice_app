@@ -275,7 +275,7 @@ class OmniVoiceModel:
             return []
         return sorted(self._model.supported_language_names())
 
-    def generate_stream(
+    def generate_stream_sentences(
         self,
         text: str,
         voice_mode: str = "auto",
@@ -285,12 +285,19 @@ class OmniVoiceModel:
         voice_profile_id: Optional[str] = None,
         language: Optional[str] = None,
         speed: float = 1.0,
-        duration: Optional[float] = None,
         num_step: int = 32,
         guidance_scale: float = 2.0,
-        chunk_duration: float = 5.0,
+        max_sentence_chars: int = 150,
     ):
-        """Generate speech audio with streaming - yields audio chunks as they are generated.
+        """True sentence-level streaming TTS.
+
+        Splits text into sentence chunks and yields decoded audio as each
+        sentence finishes generating, so playback can start before the full
+        text is synthesized.
+
+        For auto-voice mode the first sentence's output is used as a voice
+        clone reference for all subsequent sentences, keeping the voice
+        consistent across the stream.
 
         Args:
             text: Text to synthesize.
@@ -301,26 +308,23 @@ class OmniVoiceModel:
             voice_profile_id: Saved voice profile ID to use.
             language: Language for synthesis.
             speed: Speaking speed factor.
-            duration: Fixed output duration in seconds.
             num_step: Number of decoding steps.
             guidance_scale: Guidance scale for generation.
-            chunk_duration: Duration of each audio chunk in seconds.
+            max_sentence_chars: Soft character limit per sentence chunk.
 
         Yields:
-            numpy array chunks of generated audio.
+            np.ndarray of shape (T,) at ``self.sampling_rate`` for each sentence.
         """
-        import io
-
         if self._model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
-        # Determine voice clone prompt
-        voice_clone_prompt = None
+        # Resolve any saved voice profile into an initial voice clone prompt
+        initial_vcp = None
         audio_tuple = None
 
         if voice_profile_id:
-            voice_clone_prompt = self._voice_store.get_voice_clone_prompt(voice_profile_id)
-            if voice_clone_prompt is None:
+            initial_vcp = self._voice_store.get_voice_clone_prompt(voice_profile_id)
+            if initial_vcp is None:
                 raise ValueError(f"Voice profile not found: {voice_profile_id}")
         elif ref_audio:
             waveform, sr = decode_audio_from_base64(ref_audio)
@@ -331,42 +335,116 @@ class OmniVoiceModel:
             guidance_scale=guidance_scale,
         )
 
-        try:
-            # Generate full audio first
-            logger.info(f"Starting streaming generation for text: {text[:50]}...")
-            audio = self._model.generate(
-                text=text,
-                language=language,
-                ref_text=ref_text,
-                ref_audio=audio_tuple,
-                voice_clone_prompt=voice_clone_prompt,
-                instruct=instruct,
-                duration=duration,
-                speed=speed,
-                generation_config=gen_config,
+        sentences = _split_into_sentences(text, max_chars=max_sentence_chars)
+        if not sentences:
+            return
+
+        logger.info(
+            f"Sentence streaming: {len(sentences)} sentence(s) from {len(text)} chars"
+        )
+
+        # Will hold a VoiceClonePrompt derived from sentence 0 for auto mode
+        auto_vcp = None
+
+        for i, sentence in enumerate(sentences):
+            if not sentence.strip():
+                continue
+
+            logger.info(
+                f"Generating sentence {i + 1}/{len(sentences)}: {sentence[:60]!r}"
             )
-            logger.info(f"Audio generation complete. Shape: {audio.shape}, duration: {audio.shape[-1] / self.sampling_rate:.2f}s")
 
-            # Yield audio in chunks
-            if len(audio.shape) == 1:
-                audio = audio[np.newaxis, :]  # (T,) -> (1, T)
+            # Decide which voice clone prompt / ref audio to use for this sentence
+            current_vcp = initial_vcp
+            current_ref_audio = audio_tuple
 
-            chunk_size = int(chunk_duration * self.sampling_rate)
-            total_samples = audio.shape[1]
-            num_chunks = (total_samples + chunk_size - 1) // chunk_size
-            logger.info(f"Streaming audio in {num_chunks} chunks of ~{chunk_duration}s each")
+            if (
+                voice_mode == "auto"
+                and initial_vcp is None
+                and audio_tuple is None
+                and i > 0
+            ):
+                current_vcp = auto_vcp  # may still be None if creation failed
 
-            for start in range(0, total_samples, chunk_size):
-                end = min(start + chunk_size, total_samples)
-                chunk = audio[:, start:end]
-                logger.debug(f"Yielding chunk: samples {start} to {end}, shape: {chunk.shape}")
-                yield chunk
+            try:
+                audios = self._model.generate(
+                    text=sentence,
+                    language=language,
+                    ref_audio=current_ref_audio,
+                    voice_clone_prompt=current_vcp,
+                    instruct=instruct,
+                    speed=speed,
+                    generation_config=gen_config,
+                )
+            except Exception as e:
+                logger.error(f"Sentence {i} generation failed: {e}")
+                raise
 
-            logger.info("All chunks streamed successfully")
+            if not audios:
+                continue
 
-        except Exception as e:
-            logger.error(f"Streaming generation failed: {e}")
-            raise
+            audio = audios[0]  # shape (T,)
+
+            # After generating sentence 0 in auto mode, create a reusable
+            # voice clone prompt so all subsequent sentences use the same voice.
+            if i == 0 and voice_mode == "auto" and initial_vcp is None and audio_tuple is None:
+                try:
+                    ref_wav = audio[np.newaxis, :]  # (1, T)
+                    auto_vcp = self._model.create_voice_clone_prompt(
+                        ref_audio=(torch.from_numpy(ref_wav), self.sampling_rate),
+                        ref_text=sentence,
+                        preprocess_prompt=False,
+                    )
+                    logger.info("Created auto voice clone prompt from sentence 0")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not create auto voice prompt: {e}. "
+                        "Subsequent sentences may have a different voice."
+                    )
+
+            yield audio
+
+        logger.info("Sentence streaming complete")
+
+
+def _split_into_sentences(text: str, max_chars: int = 150) -> list[str]:
+    """Split text into sentence-level chunks at punctuation boundaries.
+
+    Splits at ``.``, ``!``, ``?``, ``。``, ``！``, ``？`` and tries to keep
+    each chunk under *max_chars* characters. If a single sentence is longer
+    than *max_chars* it is kept as-is rather than being broken mid-sentence.
+
+    Args:
+        text: Input text.
+        max_chars: Soft character limit per chunk.
+
+    Returns:
+        List of sentence chunks.
+    """
+    import re
+
+    raw_parts = re.split(r"(?<=[.!?。！？])\s*", text.strip())
+
+    sentences: list[str] = []
+    current = ""
+    for part in raw_parts:
+        if not part:
+            continue
+        # Start a new chunk if adding this part would exceed the limit
+        if current and len(current) + 1 + len(part) > max_chars:
+            sentences.append(current.strip())
+            current = part
+        else:
+            current = (current + " " + part).strip() if current else part
+
+    if current.strip():
+        sentences.append(current.strip())
+
+    # Fallback: no punctuation found — treat the whole text as one chunk
+    if not sentences and text.strip():
+        sentences = [text.strip()]
+
+    return sentences
 
 
 # Global model instance

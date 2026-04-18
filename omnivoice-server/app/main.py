@@ -1,8 +1,10 @@
 """FastAPI application for OmniVoice TTS server."""
 
+import asyncio
 import io
 import logging
 import os
+import struct
 from contextlib import asynccontextmanager
 
 import soundfile as sf
@@ -173,16 +175,21 @@ async def synthesize_speech(request: SpeechRequest) -> Response:
 
 @app.post("/v1/audio/speech/stream")
 async def synthesize_speech_stream(request: SpeechRequest):
-    """Generate speech audio from text with streaming.
+    """Generate speech audio from text with true sentence-level streaming.
 
-    This endpoint yields audio chunks as they are generated, enabling
-    progressive playback without waiting for the complete audio.
+    The input text is split into sentence chunks. Audio for each chunk is
+    yielded as soon as it finishes generating, so the client can begin
+    playback before the full text has been synthesised.
+
+    Each yielded frame is length-prefixed: 4 bytes big-endian uint32
+    followed by that many bytes of WAV audio data. A 4-byte zero signals
+    an error and terminates the stream.
 
     Args:
         request: Speech synthesis request.
 
     Returns:
-        Streaming audio response (WAV format chunks).
+        Streaming response (application/octet-stream, framed WAV chunks).
     """
     model = get_model()
 
@@ -192,7 +199,6 @@ async def synthesize_speech_stream(request: SpeechRequest):
             detail="Model not loaded. Check server logs.",
         )
 
-    # Validate voice mode and parameters (same as non-streaming)
     voice_mode = VoiceMode(request.voice.lower())
     ref_audio = None
     ref_text = None
@@ -216,56 +222,80 @@ async def synthesize_speech_stream(request: SpeechRequest):
                 status_code=400,
                 detail="Voice mode 'design' requires instruct in voice_config",
             )
-    elif voice_mode == VoiceMode.AUTO:
-        pass
 
     async def audio_stream_generator():
+        loop = asyncio.get_event_loop()
+        # Small queue to backpressure the generation thread if the client is slow
+        queue: asyncio.Queue = asyncio.Queue(maxsize=4)
+
+        def _generate_blocking():
+            """Runs in a thread pool; puts (kind, value) tuples onto the queue."""
+            try:
+                for audio in model.generate_stream_sentences(
+                    text=request.input,
+                    voice_mode=request.voice,
+                    ref_audio=ref_audio,
+                    ref_text=ref_text,
+                    instruct=instruct,
+                    voice_profile_id=voice_profile_id,
+                    language=request.generation_config.language,
+                    speed=request.generation_config.speed,
+                    num_step=request.generation_config.num_step,
+                    guidance_scale=request.generation_config.guidance_scale,
+                ):
+                    asyncio.run_coroutine_threadsafe(
+                        queue.put(("chunk", audio)), loop
+                    ).result()
+                asyncio.run_coroutine_threadsafe(
+                    queue.put(("done", None)), loop
+                ).result()
+            except Exception as exc:
+                asyncio.run_coroutine_threadsafe(
+                    queue.put(("error", exc)), loop
+                ).result()
+
+        logger.info(
+            f"Sentence-streaming TTS request: {request.input[:60]!r}"
+        )
+        gen_task = loop.run_in_executor(None, _generate_blocking)
+
+        chunk_count = 0
         try:
-            logger.info(f"Streaming TTS request received for text: {request.input[:50]}...")
-            chunk_count = 0
-            for chunk in model.generate_stream(
-                text=request.input,
-                voice_mode=request.voice,
-                ref_audio=ref_audio,
-                ref_text=ref_text,
-                instruct=instruct,
-                voice_profile_id=voice_profile_id,
-                language=request.generation_config.language,
-                speed=request.generation_config.speed,
-                duration=request.generation_config.duration,
-                num_step=request.generation_config.num_step,
-                guidance_scale=request.generation_config.guidance_scale,
-            ):
+            while True:
+                kind, value = await queue.get()
+
+                if kind == "done":
+                    logger.info(
+                        f"Sentence streaming complete. Chunks sent: {chunk_count}"
+                    )
+                    break
+
+                if kind == "error":
+                    logger.error(f"Streaming synthesis error: {value}")
+                    yield struct.pack(">I", 0)  # error sentinel
+                    return
+
+                # Encode the sentence audio (1-D numpy array) to WAV bytes
+                buf = io.BytesIO()
+                sf.write(buf, value, model.sampling_rate, format="WAV")
+                buf.seek(0)
+                audio_bytes = buf.read()
+
                 chunk_count += 1
-                logger.info(f"Generated chunk {chunk_count}, shape: {chunk.shape}, duration: {chunk.shape[1] / model.sampling_rate:.2f}s")
+                duration = len(value) / model.sampling_rate
+                logger.info(
+                    f"Sending sentence chunk {chunk_count}: "
+                    f"{len(audio_bytes)} bytes, {duration:.2f}s"
+                )
+                yield struct.pack(">I", len(audio_bytes)) + audio_bytes
 
-                # Convert chunk to WAV bytes
-                buffer = io.BytesIO()
-                sf.write(buffer, chunk.T, model.sampling_rate, format="WAV")
-                buffer.seek(0)
-                audio_bytes = buffer.read()
-                logger.info(f"Encoded chunk {chunk_count} to {len(audio_bytes)} bytes")
+        finally:
+            await gen_task
 
-                # Yield the chunk with a length prefix (4 bytes, big-endian)
-                import struct
-                length_prefix = struct.pack(">I", len(audio_bytes))
-                yield length_prefix + audio_bytes
-
-            logger.info(f"Streaming complete. Total chunks sent: {chunk_count}")
-
-        except Exception as e:
-            logger.error(f"Streaming synthesis failed: {e}")
-            # Send error marker (empty chunk signals end to client)
-            yield struct.pack(">I", 0)
-
-    # Custom streaming response that handles chunked audio data
     return StreamingResponse(
         audio_stream_generator(),
         media_type="application/octet-stream",
-        headers={
-            "X-Sampling-Rate": str(model.sampling_rate),
-            "X-Chunk-Duration": "5.0",
-        },
+        headers={"X-Sampling-Rate": str(model.sampling_rate)},
     )
 
 
