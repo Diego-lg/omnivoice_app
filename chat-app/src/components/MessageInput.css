@@ -38,6 +38,25 @@
 .story-mode-control {
   display: flex;
   align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.story-lang-select {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.story-lang-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .story-mode-btn {

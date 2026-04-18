@@ -33,6 +33,8 @@ function MessageInput({
   const [recordedBlob, setRecordedBlob] = useState(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  /** Story mode LLM + TTS language */
+  const [storyLanguage, setStoryLanguage] = useState("en");
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -55,7 +57,6 @@ function MessageInput({
   inputRef.current = input;
   imagesRef.current = images;
   onSendRef.current = onSend;
-  disabledRef.current = disabled;
 
   /** Matches CSS mobile breakpoint — tap-to-send after stop instead of preview + send. */
   const isMobileRecordingAutoSend = () =>
@@ -455,9 +456,15 @@ function MessageInput({
   const handleStoryModeClick = () => {
     if (typeof onStartStory !== "function" || inputLocked) return;
     const seed = input.trim();
-    onStartStory(seed);
+    onStartStory(seed, storyLanguage);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
+
+  const handleStopStory = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof onStopStory === "function") onStopStory();
   };
 
   // Calculate character and token counts
@@ -486,11 +493,24 @@ function MessageInput({
         )}
         {typeof onStartStory === "function" && (
           <div className="story-mode-control">
+            {!storyModeRunning && (
+              <select
+                className="story-lang-select"
+                value={storyLanguage}
+                onChange={(e) => setStoryLanguage(e.target.value)}
+                disabled={inputLocked}
+                aria-label="Story language"
+                title="Language for the story text and voice"
+              >
+                <option value="en">English</option>
+                <option value="es">Español</option>
+              </select>
+            )}
             {storyModeRunning ? (
               <button
                 type="button"
                 className="story-mode-btn story-mode-btn--stop"
-                onClick={onStopStory}
+                onClick={handleStopStory}
                 aria-pressed="true"
               >
                 Stop story

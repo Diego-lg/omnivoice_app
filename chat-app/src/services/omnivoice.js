@@ -418,6 +418,7 @@ export async function streamTextToSpeech(
     generationConfig = {},
     voiceProfileId = null,
     audioContext: providedAudioContext = null,
+    signal = null,
   } = options;
 
   // Validate voice mode requirements
@@ -473,6 +474,7 @@ export async function streamTextToSpeech(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),
+      signal,
     },
   );
 
@@ -580,7 +582,26 @@ export async function streamTextToSpeech(
   };
 
   while (true) {
-    const { done, value } = await reader.read();
+    if (signal?.aborted) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      break;
+    }
+
+    let readResult;
+    try {
+      readResult = await reader.read();
+    } catch (err) {
+      if (err?.name === "AbortError" || signal?.aborted) {
+        break;
+      }
+      throw err;
+    }
+
+    const { done, value } = readResult;
     if (done) break;
 
     appendBuffer(value);
@@ -616,13 +637,46 @@ export async function streamTextToSpeech(
     `[streamTextToSpeech] Stream complete. Total sentences: ${chunkIndex}`,
   );
 
+  if (signal?.aborted) {
+    if (ownsContext) {
+      try {
+        audioContext.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    const err = new DOMException("TTS aborted", "AbortError");
+    throw err;
+  }
+
   const combinePromise = combineAudioBuffers(collectedBuffers);
 
   const remaining = nextStartTime - audioContext.currentTime;
-  if (remaining > 0) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, remaining * 1000 + 300),
-    );
+  if (remaining > 0 && !signal?.aborted) {
+    await new Promise((resolve) => {
+      const ms = remaining * 1000 + 300;
+      const id = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(id);
+        resolve();
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  if (signal?.aborted) {
+    if (ownsContext) {
+      try {
+        audioContext.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    const err = new DOMException("TTS aborted", "AbortError");
+    throw err;
   }
 
   if (ownsContext) {

@@ -10,10 +10,11 @@ import { minimax, omnivoice, getOmnivoiceBaseUrl } from "./services/api";
 import { stripEmojis, prepareTextForTts } from "./utils/text";
 import { getDirectorModeSystemAppendix } from "./utils/directorMode";
 import {
-  STORY_NARRATOR_SYSTEM,
   STORY_SEGMENT_MAX_TOKENS,
   buildStoryStartUserMessage,
   buildStoryChatMessages,
+  getStoryNarratorSystem,
+  getStoryTtsLanguageCode,
 } from "./utils/storyMode";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
@@ -237,6 +238,7 @@ function App() {
   const sharedAudioContextRef = useRef(null);
   const storyCancelledRef = useRef(false);
   const storyLoopActiveRef = useRef(false);
+  const storyAbortControllerRef = useRef(null);
 
   const allPersonas = getAllPersonas(customPersonas);
   const currentPersona = getPersonaById(allPersonas, selectedPersonaId);
@@ -269,10 +271,20 @@ function App() {
 
   const stopStoryMode = useCallback(() => {
     storyCancelledRef.current = true;
+    try {
+      storyAbortControllerRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+    const ctx = sharedAudioContextRef.current;
+    if (ctx && ctx.state === "running") {
+      ctx.suspend().catch(() => {});
+    }
   }, []);
 
   const startStoryMode = useCallback(
-    async (seed) => {
+    async (seed, storyLang = "en") => {
+      const lang = storyLang === "es" ? "es" : "en";
       if (storyLoopActiveRef.current || isLoading) return;
       if (config.provider !== "minimax" || !config.minimaxApiKey) {
         setError(
@@ -283,6 +295,7 @@ function App() {
 
       storyCancelledRef.current = false;
       storyLoopActiveRef.current = true;
+      storyAbortControllerRef.current = null;
       setStoryModeRunning(true);
       setError(null);
 
@@ -304,13 +317,14 @@ function App() {
         /* AudioContext unavailable */
       }
 
-      const startUserText = buildStoryStartUserMessage(seed);
+      const startUserText = buildStoryStartUserMessage(seed, lang);
+      const langLabel = lang === "es" ? "Español" : "English";
       const userMessage = {
         id: Date.now(),
         role: "user",
         content: seed?.trim()
-          ? `Story mode — ${seed.trim()}`
-          : "Story mode — endless spoken story",
+          ? `Story mode (${langLabel}) — ${seed.trim()}`
+          : `Story mode (${langLabel}) — endless spoken story`,
         images: [],
         timestamp: new Date().toISOString(),
         audioBlob: null,
@@ -348,7 +362,11 @@ function App() {
       );
       const storySystem = {
         role: "system",
-        content: [currentPersona.systemPrompt, STORY_NARRATOR_SYSTEM, directorAppendix]
+        content: [
+          currentPersona.systemPrompt,
+          getStoryNarratorSystem(lang),
+          directorAppendix,
+        ]
           .filter(Boolean)
           .join("\n\n"),
       };
@@ -361,10 +379,13 @@ function App() {
         ),
       };
 
-      const ttsOptions = {
+      const ttsBaseOptions = {
         voice: config.voiceMode || "auto",
         voiceConfig: config.voiceConfig || {},
-        generationConfig: config.voiceGenerationConfig || {},
+        generationConfig: {
+          ...(config.voiceGenerationConfig || {}),
+          language: getStoryTtsLanguageCode(lang),
+        },
         voiceProfileId: config.voiceConfig?.selectedProfileId || null,
         audioContext: sharedAudioContextRef.current || null,
       };
@@ -395,10 +416,15 @@ function App() {
       try {
         let emptyRounds = 0;
         while (!storyCancelledRef.current) {
+          const segmentAbort = new AbortController();
+          storyAbortControllerRef.current = segmentAbort;
+          const { signal } = segmentAbort;
+
           const chatMessages = buildStoryChatMessages(
             storySystem,
             startUserText,
             accumulated,
+            lang,
           );
 
           let segmentContent = "";
@@ -407,14 +433,25 @@ function App() {
             config.minimaxApiKey,
             config.minimaxModel,
             segmentLlmConfig,
+            { signal },
           );
 
-          for await (const chunk of stream) {
-            if (storyCancelledRef.current) break;
-            segmentContent += stripEmojis(chunk);
+          try {
+            for await (const chunk of stream) {
+              if (storyCancelledRef.current || signal.aborted) break;
+              segmentContent += stripEmojis(chunk);
+            }
+          } catch (streamErr) {
+            if (
+              streamErr?.name === "AbortError" ||
+              storyCancelledRef.current
+            ) {
+              break;
+            }
+            throw streamErr;
           }
 
-          if (storyCancelledRef.current) break;
+          if (storyCancelledRef.current || signal.aborted) break;
 
           const piece = segmentContent.replace(/\s+/g, " ").trim();
           if (!piece) {
@@ -444,10 +481,18 @@ function App() {
           try {
             await omnivoice.streamTextToSpeech(
               ttsText,
-              ttsOptions,
+              { ...ttsBaseOptions, signal },
               omnivoiceApiRoot,
             );
           } catch (ttsErr) {
+            if (
+              ttsErr?.name === "AbortError" ||
+              storyCancelledRef.current ||
+              signal.aborted
+            ) {
+              updateAssistant(accumulated, { isStreamingAudio: false });
+              break;
+            }
             console.error("Story mode TTS failed:", ttsErr);
             setError(ttsErr.message || String(ttsErr));
             updateAssistant(accumulated, { isStreamingAudio: false });
@@ -482,9 +527,18 @@ function App() {
           }),
         );
       } finally {
+        storyAbortControllerRef.current = null;
         storyLoopActiveRef.current = false;
         storyCancelledRef.current = false;
         setStoryModeRunning(false);
+        try {
+          const ctx = sharedAudioContextRef.current;
+          if (ctx && ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+          }
+        } catch {
+          /* ignore */
+        }
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== sid) return s;

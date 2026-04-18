@@ -13,7 +13,9 @@ export async function* streamMinimaxResponse(
   apiKey,
   model = "MiniMax-M2.7",
   llmConfig = {},
+  requestOptions = {},
 ) {
+  const { signal } = requestOptions;
   console.log("[MiniMax] Starting request with model:", model);
   console.log("[MiniMax] Number of messages:", messages.length);
   console.log("[MiniMax] API URL:", MINIMAX_BASE_URL);
@@ -51,16 +53,28 @@ export async function* streamMinimaxResponse(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
+      signal,
     });
     console.log("[MiniMax] Response status:", response.status);
     console.log("[MiniMax] Response ok:", response.ok);
   } catch (err) {
     console.error("[MiniMax] Fetch error:", err);
+    if (err?.name === "AbortError") {
+      return;
+    }
     throw err;
   }
 
   // Read the full response text first to check for errors
-  const responseText = await response.text();
+  let responseText;
+  try {
+    responseText = await response.text();
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      return;
+    }
+    throw err;
+  }
   console.log("[MiniMax] Response text length:", responseText.length);
   console.log(
     "[MiniMax] Response text preview:",
