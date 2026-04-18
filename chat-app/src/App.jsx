@@ -8,6 +8,7 @@ import PersonaEditor from "./components/PersonaEditor";
 import ChatHistory from "./components/ChatHistory";
 import { minimax, omnivoice, getOmnivoiceBaseUrl } from "./services/api";
 import { stripEmojis, prepareTextForTts } from "./utils/text";
+import { getDirectorModeSystemAppendix } from "./utils/directorMode";
 import { PREMADE_PERSONAS, DEFAULT_PERSONA_ID } from "./data/personas";
 import "./App.css";
 
@@ -48,6 +49,10 @@ const DEFAULT_CONFIG = {
     fontFamily: "system",
     codeStyle: "dark",
     markdown: true,
+    /** When voice is on, steer LLM tone for spoken output */
+    directorMode: false,
+    directorMood: "neutral",
+    directorMoodCustom: "",
   },
   llmConfig: {
     maxTokens: 2048,
@@ -456,9 +461,16 @@ function App() {
         });
       });
 
+      const voiceEnabledForLlm =
+        config.voiceEnabled || config.realtimeSpeechToSpeech;
+      const directorAppendix = voiceEnabledForLlm
+        ? getDirectorModeSystemAppendix(config.textFormatConfig)
+        : null;
       const systemMessage = {
         role: "system",
-        content: currentPersona.systemPrompt,
+        content: [currentPersona.systemPrompt, directorAppendix]
+          .filter(Boolean)
+          .join("\n\n"),
       };
 
       const chatHistory = [

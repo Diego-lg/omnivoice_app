@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MINIMAX_MODELS } from "../services/api";
+import { DIRECTOR_MOOD_OPTIONS } from "../utils/directorMode";
 import VoiceSettings from "./VoiceSettings";
 import "./SettingsModal.css";
 
@@ -40,6 +41,12 @@ function SettingsModal({ config, onUpdate, onClose }) {
         newConfig.playbackConfig = {
           ...prev.playbackConfig,
           ...updates.playbackConfig,
+        };
+      }
+      if (updates.textFormatConfig) {
+        newConfig.textFormatConfig = {
+          ...(prev.textFormatConfig || {}),
+          ...updates.textFormatConfig,
         };
       }
       return newConfig;
@@ -310,6 +317,81 @@ function SettingsModal({ config, onUpdate, onClose }) {
                   Enable or disable markdown formatting in messages
                 </p>
               </div>
+
+              <h3 className="section-title section-title-spaced">
+                Director mode
+              </h3>
+              <p className="form-hint">
+                When <strong>Voice</strong> is on, the model is nudged to match
+                the mood you pick so replies sound right for text-to-speech.
+                Director instructions are always sent in English; the model
+                can still reply in Spanish or another language to match the
+                chat.
+              </p>
+              <div className="form-group">
+                <label className="form-label toggle-label">
+                  <span>Enable Director mode</span>
+                  <input
+                    type="checkbox"
+                    className="form-checkbox"
+                    checked={!!localConfig.textFormatConfig?.directorMode}
+                    onChange={(e) =>
+                      handleVoiceSettingsUpdate({
+                        textFormatConfig: {
+                          ...localConfig.textFormatConfig,
+                          directorMode: e.target.checked,
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Conversation mood</label>
+                <select
+                  className="form-select"
+                  value={localConfig.textFormatConfig?.directorMood || "neutral"}
+                  onChange={(e) =>
+                    handleVoiceSettingsUpdate({
+                      textFormatConfig: {
+                        ...localConfig.textFormatConfig,
+                        directorMood: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  {DIRECTOR_MOOD_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="form-hint">
+                  Guides tone and pacing of assistant replies while voice output
+                  is enabled (preset descriptions are English instructions to
+                  the model)
+                </p>
+              </div>
+              {(localConfig.textFormatConfig?.directorMood || "neutral") ===
+                "custom" && (
+                <div className="form-group">
+                  <label className="form-label">Custom mood</label>
+                  <textarea
+                    className="form-textarea"
+                    rows={3}
+                    value={localConfig.textFormatConfig?.directorMoodCustom || ""}
+                    onChange={(e) =>
+                      handleVoiceSettingsUpdate({
+                        textFormatConfig: {
+                          ...localConfig.textFormatConfig,
+                          directorMoodCustom: e.target.value,
+                        },
+                      })
+                    }
+                    placeholder="e.g. noir detective narrator, gentle bedtime story (wrapped in English instructions when sent)"
+                  />
+                </div>
+              )}
             </div>
           )}
 
